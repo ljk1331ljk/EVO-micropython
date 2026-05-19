@@ -4,6 +4,7 @@ MicroPython documentation and references
 .. toctree::
 
     library/index.rst
+    evo/index.rst
     reference/index.rst
     genrst/index.rst
     develop/index.rst
