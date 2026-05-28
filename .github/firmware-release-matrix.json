@@ -2,17 +2,23 @@
   {
     "port": "esp32",
     "board": "EVOX1E",
+    "device_id": "evox1e",
+    "product": "EVO-X1E Robotics Controller",
+    "chip": "esp32s3",
     "variant": "SPIRAM_OCT",
     "user_c_modules": "../../ports/esp32/usermod",
     "frozen_manifest": "boards/EVOX1E/manifest.py",
-    "artifacts": "bin uf2 app-bin elf map"
+    "artifacts": "bin uf2 bootloader-bin partition-table-bin app-bin elf map"
   },
   {
     "port": "esp32",
     "board": "EVOX1P",
+    "device_id": "evox1p",
+    "product": "EVO-X1P Robotics Controller",
+    "chip": "esp32s3",
     "variant": "SPIRAM_OCT",
     "user_c_modules": "../../ports/esp32/usermod",
     "frozen_manifest": "boards/EVOX1P/manifest.py",
-    "artifacts": "bin uf2 app-bin elf map"
+    "artifacts": "bin uf2 bootloader-bin partition-table-bin app-bin elf map"
   }
 ]
