@@ -355,23 +355,33 @@ jobs:
 
           echo "pages_url=${pages_root}/firmware/latest/latest.json" >> "${GITHUB_OUTPUT}"
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      - name: Publish firmware site branch
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: pages-site
+          deploy_dir="${RUNNER_TEMP}/pages-deploy"
+          mkdir -p "${deploy_dir}"
+          git init "${deploy_dir}"
+          cd "${deploy_dir}"
 
-  deploy-pages:
-    needs: release
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy firmware to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if git fetch --depth=1 origin gh-pages; then
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+          fi
+
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a "${GITHUB_WORKSPACE}/pages-site/." .
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No GitHub Pages changes to publish."
+          else
+            git commit -m "Deploy firmware pages for ${GITHUB_REF_NAME}"
+            git push origin HEAD:gh-pages
+          fi
