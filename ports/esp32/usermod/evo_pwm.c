@@ -1,0 +1,185 @@
+#include "py/runtime.h"
+#include "py/mphal.h"
+#include "py/obj.h"
+#include "py/qstr.h"
+#include "py/mpstate.h"
+
+#if __has_include("extmod/machine_i2c.h")
+    #include "extmod/machine_i2c.h"
+#elif __has_include("extmod/modmachine_i2c.h")
+    #include "extmod/modmachine_i2c.h"
+#else
+    #include "extmod/modmachine.h"
+#endif
+
+#include "evo_pwm.h"
+
+// Forward declaration for use before MP_DEFINE_CONST_OBJ_TYPE(...)
+extern const mp_obj_type_t evo_pwm_type;
+
+// GC-rooted singleton
+MP_REGISTER_ROOT_POINTER(mp_obj_t evo_pwm_singleton);
+
+static mp_machine_i2c_p_t *get_i2c_proto(mp_obj_t i2c) {
+    return (mp_machine_i2c_p_t*)MP_OBJ_TYPE_GET_SLOT(mp_obj_get_type(i2c), protocol);
+}
+
+static void i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, const uint8_t *buf, size_t len) {
+    mp_machine_i2c_p_t *p = get_i2c_proto(i2c);
+    if (!p || !p->transfer) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("I2C transfer unsupported"));
+    }
+
+    uint8_t tmp[1 + 8];
+    if (len > 8) {
+        mp_raise_ValueError(MP_ERROR_TEXT("i2c write too long"));
+    }
+
+    tmp[0] = memaddr;
+    for (size_t i = 0; i < len; i++) {
+        tmp[1 + i] = buf[i];
+    }
+
+    mp_machine_i2c_buf_t bufs[1] = {
+        { .len = 1 + len, .buf = tmp }
+    };
+
+    int ret = p->transfer(i2c, addr, 1, bufs, MP_MACHINE_I2C_FLAG_STOP);
+    if (ret < 0) {
+        mp_raise_OSError(-ret);
+    }
+}
+
+static uint8_t i2c_readfrom_mem_u8(mp_obj_t i2c, uint16_t addr, uint8_t memaddr) {
+    mp_machine_i2c_p_t *p = get_i2c_proto(i2c);
+    if (!p || !p->transfer) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("I2C transfer unsupported"));
+    }
+
+    uint8_t out = 0;
+    mp_machine_i2c_buf_t w[1] = {{ .len = 1, .buf = &memaddr }};
+    mp_machine_i2c_buf_t r[1] = {{ .len = 1, .buf = &out }};
+
+    int ret = p->transfer(i2c, addr, 1, w, 0);
+    if (ret < 0) {
+        mp_raise_OSError(-ret);
+    }
+
+    ret = p->transfer(i2c, addr, 1, r, MP_MACHINE_I2C_FLAG_READ | MP_MACHINE_I2C_FLAG_STOP);
+    if (ret < 0) {
+        mp_raise_OSError(-ret);
+    }
+
+    return out;
+}
+
+void evo_pwm_set_raw(evo_pwm_obj_t *pwm, uint8_t ch, int on, int off) {
+    uint8_t buf[4] = {
+        (uint8_t)(on & 0xFF),
+        (uint8_t)((on >> 8) & 0xFF),
+        (uint8_t)(off & 0xFF),
+        (uint8_t)((off >> 8) & 0xFF),
+    };
+    i2c_writeto_mem(pwm->i2c_obj, pwm->addr, (uint8_t)(PCA9685_LED0_ON_L + 4 * ch), buf, 4);
+}
+
+static mp_obj_t import_board_pins(void) {
+    return mp_import_name(MP_QSTR_pins, mp_const_none, MP_OBJ_NEW_SMALL_INT(0));
+}
+
+static mp_obj_t get_board_I2CB(void) {
+    mp_obj_t pins = import_board_pins();
+    return mp_load_attr(pins, qstr_from_str("I2CB"));
+}
+
+static uint16_t get_board_pwm_addr(void) {
+    mp_obj_t pins = import_board_pins();
+    return (uint16_t)mp_obj_get_int(mp_load_attr(pins, qstr_from_str("PCA9685PW_ADDRESS")));
+}
+
+mp_obj_t evo_get_pwm_singleton(void) {
+    mp_obj_t *root = &MP_STATE_PORT(evo_pwm_singleton);
+    if (*root != MP_OBJ_NULL) {
+        return *root;
+    }
+
+    mp_obj_t i2cb = get_board_I2CB();
+
+    evo_pwm_obj_t *obj = mp_obj_malloc(evo_pwm_obj_t, &evo_pwm_type);
+    obj->i2c_obj = i2cb;
+    obj->addr = get_board_pwm_addr();
+
+    uint8_t mode1 = 0x20; // AI=1
+    i2c_writeto_mem(obj->i2c_obj, obj->addr, PCA9685_MODE1, &mode1, 1);
+
+    *root = MP_OBJ_FROM_PTR(obj);
+    return *root;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(evo_get_pwm_singleton_obj, evo_get_pwm_singleton);
+
+static mp_obj_t evo_pwm_freq(size_t n_args, const mp_obj_t *args) {
+    evo_pwm_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+
+    if (n_args == 1) {
+        uint8_t prescale = i2c_readfrom_mem_u8(self->i2c_obj, self->addr, PCA9685_PRESCALE);
+        float f = 25000000.0f / 4096.0f / ((float)prescale - 0.5f);
+        return mp_obj_new_int((int)f);
+    }
+
+    int hz = mp_obj_get_int(args[1]);
+    if (hz <= 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("freq must be > 0"));
+    }
+
+    int prescale = (int)(25000000.0f / 4096.0f / (float)hz + 0.5f);
+    if (prescale < 3) prescale = 3;
+    if (prescale > 255) prescale = 255;
+
+    uint8_t old_mode = i2c_readfrom_mem_u8(self->i2c_obj, self->addr, PCA9685_MODE1);
+
+    uint8_t sleep_mode = (old_mode & 0x7F) | 0x10;
+    i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &sleep_mode, 1);
+
+    uint8_t p = (uint8_t)prescale;
+    i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_PRESCALE, &p, 1);
+
+    i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &old_mode, 1);
+    mp_hal_delay_us(5);
+
+    uint8_t ai = old_mode | 0x20;
+    i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &ai, 1);
+
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(evo_pwm_freq_obj, 1, 2, evo_pwm_freq);
+
+static mp_obj_t evo_pwm_pwm(size_t n_args, const mp_obj_t *args) {
+    evo_pwm_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    int ch  = mp_obj_get_int(args[1]);
+    int on  = mp_obj_get_int(args[2]);
+    int off = mp_obj_get_int(args[3]);
+
+    if (ch < 0 || ch > 15) {
+        mp_raise_ValueError(MP_ERROR_TEXT("ch out of range"));
+    }
+    if (on < 0 || on > 4096 || off < 0 || off > 4096) {
+        mp_raise_ValueError(MP_ERROR_TEXT("pwm out of range"));
+    }
+
+    evo_pwm_set_raw(self, (uint8_t)ch, on, off);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(evo_pwm_pwm_obj, 4, 4, evo_pwm_pwm);
+
+static const mp_rom_map_elem_t evo_pwm_locals_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_freq), MP_ROM_PTR(&evo_pwm_freq_obj) },
+    { MP_ROM_QSTR(MP_QSTR_pwm),  MP_ROM_PTR(&evo_pwm_pwm_obj)  },
+};
+static MP_DEFINE_CONST_DICT(evo_pwm_locals_dict, evo_pwm_locals_table);
+
+MP_DEFINE_CONST_OBJ_TYPE(
+    evo_pwm_type,
+    MP_QSTR_EVOPWMDriver,
+    MP_TYPE_FLAG_NONE,
+    locals_dict, &evo_pwm_locals_dict
+);

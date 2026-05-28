@@ -1,0 +1,30 @@
+{
+    "deploy": [
+        "../deploy.md"
+    ],
+    "deploy_options": {
+        "flash_offset": "0"
+    },
+    "docs": "",
+    "features": [
+        "BLE",
+        "WiFi",
+        "USB",
+        "External Flash",
+        "External RAM",
+        "Display",
+        "Touch",
+        "Motor Control"
+    ],
+    "images": [
+        "evox1p.jpg"
+    ],
+    "mcu": "esp32s3",
+    "product": "EVO-X1P Robotics Controller",
+    "thumbnail": "evox1p-thumb.jpg",
+    "url": "https://github.com/ljk1331ljk/EVO-arduino",
+    "vendor": "TribalStudioz",
+    "variants": {
+        "SPIRAM_OCT": "Support for Octal-SPIRAM"
+    }
+}
