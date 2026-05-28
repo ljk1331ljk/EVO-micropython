@@ -12,16 +12,70 @@
 #include "evo_motorpair.h"
 #include "evo_mecanum.h"
 
+// ============================================================================
+// Shared Evo config
+// ============================================================================
+
 #define CONFIG_FILE "/evo_config.json"
 #define CONFIG_TMP  "/evo_config.json.tmp"
 
-#define DEFAULT_NAME "Evo_X1E"
-#define DEFAULT_CONTROLLER "EVO-X1E"
+#ifndef EVO_DEFAULT_NAME
+#define EVO_DEFAULT_NAME "Evo"
+#endif
+
+#ifndef EVO_DEFAULT_BLE_NAME
+#define EVO_DEFAULT_BLE_NAME EVO_DEFAULT_NAME
+#endif
+
+#ifndef EVO_DEFAULT_WIFI_NAME
+#define EVO_DEFAULT_WIFI_NAME EVO_DEFAULT_NAME
+#endif
+
+#ifndef EVO_CONTROLLER_TYPE
+#define EVO_CONTROLLER_TYPE "EVO"
+#endif
+
+#ifndef EVO_DOWNLOAD_ENABLED
+#define EVO_DOWNLOAD_ENABLED (true)
+#endif
+
+#ifndef EVO_DOWNLOAD_START_ON_BOOT
+#define EVO_DOWNLOAD_START_ON_BOOT (true)
+#endif
+
+#ifndef EVO_DOWNLOAD_ADV_INTERVAL_US
+#define EVO_DOWNLOAD_ADV_INTERVAL_US (200000)
+#endif
+
+#ifndef EVO_DOWNLOAD_DEBUG
+#define EVO_DOWNLOAD_DEBUG (false)
+#endif
+
+#ifndef EVO_DOWNLOAD_ACK_EVERY
+#define EVO_DOWNLOAD_ACK_EVERY (1)
+#endif
+
+#ifndef EVO_DOWNLOAD_SENSOR_STREAMING
+#define EVO_DOWNLOAD_SENSOR_STREAMING (true)
+#endif
+
+#ifndef EVO_DOWNLOAD_SENSOR_TICK_MS
+#define EVO_DOWNLOAD_SENSOR_TICK_MS (50)
+#endif
+
+#ifndef EVO_DEFAULT_BLE_DOWNLOAD_ENABLED
+#define EVO_DEFAULT_BLE_DOWNLOAD_ENABLED (false)
+#endif
+
+#ifndef EVO_DEFAULT_BLE_DOWNLOAD_ON_BOOT
+#define EVO_DEFAULT_BLE_DOWNLOAD_ON_BOOT (false)
+#endif
+
 #define MAX_NAME_LEN 31
 
-// ----------------------------------------------------------
+// ============================================================================
 // Helpers
-// ----------------------------------------------------------
+// ============================================================================
 
 static mp_obj_t import_module(const char *name) {
     return mp_import_name(qstr_from_str(name), mp_const_none, MP_OBJ_NEW_SMALL_INT(0));
@@ -62,6 +116,7 @@ static bool is_valid_name(mp_obj_t obj) {
             return false;
         }
     }
+
     return true;
 }
 
@@ -96,23 +151,72 @@ static mp_obj_t dict_get_default(mp_obj_t dict, qstr key, mp_obj_t default_val) 
         mp_obj_t val = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(key));
         nlr_pop();
         return val;
-    } else {
-        return default_val;
     }
+
+    return default_val;
 }
 
-// ----------------------------------------------------------
-// Config helpers
-// ----------------------------------------------------------
+static bool obj_to_bool(mp_obj_t obj, bool fallback) {
+    if (obj == mp_const_true) {
+        return true;
+    }
+    if (obj == mp_const_false || obj == mp_const_none) {
+        return false;
+    }
+    if (obj == MP_OBJ_NULL) {
+        return fallback;
+    }
+
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        bool v = mp_obj_is_true(obj);
+        nlr_pop();
+        return v;
+    }
+
+    return fallback;
+}
+
+static int obj_to_int(mp_obj_t obj, int fallback, int min_value) {
+    if (obj == MP_OBJ_NULL || obj == mp_const_none) {
+        return fallback;
+    }
+
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        int v = mp_obj_get_int(obj);
+        nlr_pop();
+        if (v < min_value) {
+            return min_value;
+        }
+        return v;
+    }
+
+    return fallback;
+}
+
+static mp_obj_t default_download_config(void) {
+    mp_obj_t d = mp_obj_new_dict(7);
+
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_enabled), mp_obj_new_bool(EVO_DOWNLOAD_ENABLED));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_start_on_boot), mp_obj_new_bool(EVO_DOWNLOAD_START_ON_BOOT));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_adv_interval_us), mp_obj_new_int(EVO_DOWNLOAD_ADV_INTERVAL_US));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_debug), mp_obj_new_bool(EVO_DOWNLOAD_DEBUG));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_ack_every), mp_obj_new_int(EVO_DOWNLOAD_ACK_EVERY));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_sensor_streaming), mp_obj_new_bool(EVO_DOWNLOAD_SENSOR_STREAMING));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_sensor_tick_ms), mp_obj_new_int(EVO_DOWNLOAD_SENSOR_TICK_MS));
+
+    return d;
+}
 
 static mp_obj_t default_config(void) {
-    mp_obj_t d = mp_obj_new_dict(4);
-    mp_obj_t n = new_str(DEFAULT_NAME);
+    mp_obj_t d = mp_obj_new_dict(5);
 
-    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_name), n);
-    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_ble_name), n);
-    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_wifi_name), n);
-    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_controller_type), new_str(DEFAULT_CONTROLLER));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_name), new_str(EVO_DEFAULT_NAME));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_ble_name), new_str(EVO_DEFAULT_BLE_NAME));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_wifi_name), new_str(EVO_DEFAULT_WIFI_NAME));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_controller_type), new_str(EVO_CONTROLLER_TYPE));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_download), default_download_config());
 
     return d;
 }
@@ -137,8 +241,7 @@ static bool safe_write_config(mp_obj_t cfg) {
             nlr_pop();
         }
 
-        mp_call_function_2(mp_load_attr(os, MP_QSTR_rename),
-            new_str(CONFIG_TMP), new_str(CONFIG_FILE));
+        mp_call_function_2(mp_load_attr(os, MP_QSTR_rename), new_str(CONFIG_TMP), new_str(CONFIG_FILE));
 
         nlr_pop();
         return true;
@@ -156,6 +259,41 @@ static void ensure_config(void) {
     } else {
         safe_write_config(default_config());
     }
+}
+
+static mp_obj_t sanitise_download_config(mp_obj_t raw_download) {
+    mp_obj_t def = default_download_config();
+
+    if (!mp_obj_is_type(raw_download, &mp_type_dict)) {
+        return def;
+    }
+
+    mp_obj_t d = mp_obj_new_dict(7);
+
+    mp_obj_t raw_enabled = dict_get_default(raw_download, MP_QSTR_enabled,
+        dict_get_default(def, MP_QSTR_enabled, mp_const_true));
+    mp_obj_t raw_start = dict_get_default(raw_download, MP_QSTR_start_on_boot,
+        dict_get_default(def, MP_QSTR_start_on_boot, mp_const_true));
+    mp_obj_t raw_adv = dict_get_default(raw_download, MP_QSTR_adv_interval_us,
+        dict_get_default(def, MP_QSTR_adv_interval_us, mp_obj_new_int(200000)));
+    mp_obj_t raw_debug = dict_get_default(raw_download, MP_QSTR_debug,
+        dict_get_default(def, MP_QSTR_debug, mp_const_false));
+    mp_obj_t raw_ack = dict_get_default(raw_download, MP_QSTR_ack_every,
+        dict_get_default(def, MP_QSTR_ack_every, mp_obj_new_int(1)));
+    mp_obj_t raw_sensor = dict_get_default(raw_download, MP_QSTR_sensor_streaming,
+        dict_get_default(def, MP_QSTR_sensor_streaming, mp_const_true));
+    mp_obj_t raw_tick = dict_get_default(raw_download, MP_QSTR_sensor_tick_ms,
+        dict_get_default(def, MP_QSTR_sensor_tick_ms, mp_obj_new_int(50)));
+
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_enabled), mp_obj_new_bool(obj_to_bool(raw_enabled, EVO_DOWNLOAD_ENABLED)));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_start_on_boot), mp_obj_new_bool(obj_to_bool(raw_start, EVO_DOWNLOAD_START_ON_BOOT)));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_adv_interval_us), mp_obj_new_int(obj_to_int(raw_adv, EVO_DOWNLOAD_ADV_INTERVAL_US, 20000)));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_debug), mp_obj_new_bool(obj_to_bool(raw_debug, EVO_DOWNLOAD_DEBUG)));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_ack_every), mp_obj_new_int(obj_to_int(raw_ack, EVO_DOWNLOAD_ACK_EVERY, 1)));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_sensor_streaming), mp_obj_new_bool(obj_to_bool(raw_sensor, EVO_DOWNLOAD_SENSOR_STREAMING)));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_sensor_tick_ms), mp_obj_new_int(obj_to_int(raw_tick, EVO_DOWNLOAD_SENSOR_TICK_MS, 20)));
+
+    return d;
 }
 
 static mp_obj_t load_config(void) {
@@ -178,34 +316,34 @@ static mp_obj_t load_config(void) {
             return d;
         }
 
-        mp_obj_t raw_name = dict_get_default(raw_cfg, MP_QSTR_name, new_str(DEFAULT_NAME));
-        mp_obj_t name = sanitize_name(raw_name, DEFAULT_NAME);
+        mp_obj_t raw_name = dict_get_default(raw_cfg, MP_QSTR_name, new_str(EVO_DEFAULT_NAME));
+        mp_obj_t name = sanitize_name(raw_name, EVO_DEFAULT_NAME);
 
-        mp_obj_t raw_ble = dict_get_default(raw_cfg, MP_QSTR_ble_name, name);
+        mp_obj_t raw_ble = dict_get_default(raw_cfg, MP_QSTR_ble_name, new_str(EVO_DEFAULT_BLE_NAME));
         mp_obj_t ble_name = sanitize_name(raw_ble, mp_obj_str_get_str(name));
 
-        mp_obj_t raw_wifi = dict_get_default(raw_cfg, MP_QSTR_wifi_name, name);
+        mp_obj_t raw_wifi = dict_get_default(raw_cfg, MP_QSTR_wifi_name, new_str(EVO_DEFAULT_WIFI_NAME));
         mp_obj_t wifi_name = sanitize_name(raw_wifi, mp_obj_str_get_str(name));
 
-        mp_obj_t raw_ct = dict_get_default(raw_cfg, MP_QSTR_controller_type, new_str(DEFAULT_CONTROLLER));
+        mp_obj_t raw_ct = dict_get_default(raw_cfg, MP_QSTR_controller_type, new_str(EVO_CONTROLLER_TYPE));
         mp_obj_t controller_type;
         if (mp_obj_is_str(raw_ct)) {
             size_t ct_len = 0;
             mp_obj_str_get_data(raw_ct, &ct_len);
-            if (ct_len == 0) {
-                controller_type = new_str(DEFAULT_CONTROLLER);
-            } else {
-                controller_type = raw_ct;
-            }
+            controller_type = (ct_len == 0) ? new_str(EVO_CONTROLLER_TYPE) : raw_ct;
         } else {
-            controller_type = new_str(DEFAULT_CONTROLLER);
+            controller_type = new_str(EVO_CONTROLLER_TYPE);
         }
 
-        mp_obj_t cfg = mp_obj_new_dict(4);
+        mp_obj_t raw_download = dict_get_default(raw_cfg, MP_QSTR_download, default_download_config());
+        mp_obj_t download = sanitise_download_config(raw_download);
+
+        mp_obj_t cfg = mp_obj_new_dict(5);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_name), name);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_ble_name), ble_name);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_wifi_name), wifi_name);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_controller_type), controller_type);
+        mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_download), download);
 
         safe_write_config(cfg);
 
@@ -213,68 +351,145 @@ static mp_obj_t load_config(void) {
         return cfg;
     }
 
-    {
-        mp_obj_t d = default_config();
-        safe_write_config(d);
-        return d;
-    }
+    mp_obj_t d = default_config();
+    safe_write_config(d);
+    return d;
 }
 
-// ----------------------------------------------------------
-// evo_init(start_ble=True, console=True, max_chunk=160, debug=False)
-// ----------------------------------------------------------
+static mp_obj_t get_download_config(mp_obj_t cfg) {
+    return dict_get_default(cfg, MP_QSTR_download, default_download_config());
+}
+
+static bool save_download_value(qstr key, mp_obj_t value) {
+    mp_obj_t cfg = load_config();
+    mp_obj_t download = get_download_config(cfg);
+    mp_obj_dict_store(download, MP_OBJ_NEW_QSTR(key), value);
+    mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_download), sanitise_download_config(download));
+    return safe_write_config(cfg);
+}
+
+// ============================================================================
+// evo_init(start_download=None, start_ble=None, debug=None, adv_interval_us=None,
+//          ack_every=None, sensor_streaming=None, sensor_tick_ms=None)
+//
+// start_download=None follows /evo_config.json download.enabled and
+// download.start_on_boot. start_ble is kept as a backward-compatible alias.
+// ============================================================================
 
 static mp_obj_t evo_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
     enum {
+        ARG_start_download,
         ARG_start_ble,
+        ARG_debug,
+        ARG_adv_interval_us,
+        ARG_ack_every,
+        ARG_sensor_streaming,
+        ARG_sensor_tick_ms,
         ARG_console,
         ARG_max_chunk,
-        ARG_debug,
     };
 
     static const mp_arg_t allowed_args[] = {
-        { MP_QSTR_start_ble, MP_ARG_BOOL, {.u_bool = true} },
-        { MP_QSTR_console,   MP_ARG_BOOL, {.u_bool = true} },
-        { MP_QSTR_max_chunk, MP_ARG_INT,  {.u_int = 160} },
-        { MP_QSTR_debug,     MP_ARG_BOOL, {.u_bool = false} },
+        { MP_QSTR_start_download, MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_start_ble,      MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_debug,          MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_adv_interval_us, MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_ack_every,      MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_sensor_streaming, MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_sensor_tick_ms, MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        // Kept so older boot.py calls do not fail. EvoDownloadManager no longer uses them.
+        { MP_QSTR_console,        MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_max_chunk,      MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
     };
 
-    mp_arg_val_t vals[4];
-    mp_arg_parse_all(n_args, args, kw_args, 4, allowed_args, vals);
+    mp_arg_val_t vals[9];
+    mp_arg_parse_all(n_args, args, kw_args, 9, allowed_args, vals);
 
     mp_obj_t cfg = load_config();
+    mp_obj_t download = get_download_config(cfg);
 
-    if (vals[ARG_start_ble].u_bool) {
-        nlr_buf_t nlr;
-        if (nlr_push(&nlr) == 0) {
-            mp_obj_t ble = import_module("ble_uploader");
-            mp_obj_t start = mp_load_attr(ble, MP_QSTR_start);
+    bool enabled = obj_to_bool(dict_get_default(download, MP_QSTR_enabled, mp_const_true), true);
+    bool start_on_boot = obj_to_bool(dict_get_default(download, MP_QSTR_start_on_boot, mp_const_true), true);
+    bool should_start = enabled && start_on_boot;
 
-            mp_obj_t ble_name = dict_get_default(cfg, MP_QSTR_ble_name, new_str(DEFAULT_NAME));
+    if (vals[ARG_start_download].u_obj != MP_OBJ_NULL) {
+        should_start = obj_to_bool(vals[ARG_start_download].u_obj, should_start);
+    } else if (vals[ARG_start_ble].u_obj != MP_OBJ_NULL) {
+        should_start = obj_to_bool(vals[ARG_start_ble].u_obj, should_start);
+    }
 
-            mp_obj_t call_args[8] = {
-                MP_OBJ_NEW_QSTR(MP_QSTR_name), ble_name,
-                MP_OBJ_NEW_QSTR(MP_QSTR_max_chunk), mp_obj_new_int(vals[ARG_max_chunk].u_int),
-                MP_OBJ_NEW_QSTR(MP_QSTR_debug), mp_obj_new_bool(vals[ARG_debug].u_bool),
-                MP_OBJ_NEW_QSTR(MP_QSTR_console), mp_obj_new_bool(vals[ARG_console].u_bool),
-            };
+    if (!should_start) {
+        return mp_const_none;
+    }
 
-            mp_call_function_n_kw(start, 0, 4, call_args);
-            nlr_pop();
-        } else {
-            mp_printf(&mp_plat_print, "BLE start failed\n");
-        }
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        mp_obj_t manager = import_module("EvoDownloadManager");
+        mp_obj_t start = mp_load_attr(manager, MP_QSTR_start);
+
+        mp_obj_t ble_name = dict_get_default(cfg, MP_QSTR_ble_name, new_str(EVO_DEFAULT_BLE_NAME));
+
+        int adv_interval_us = obj_to_int(
+            vals[ARG_adv_interval_us].u_obj != MP_OBJ_NULL
+                ? vals[ARG_adv_interval_us].u_obj
+                : dict_get_default(download, MP_QSTR_adv_interval_us, mp_obj_new_int(EVO_DOWNLOAD_ADV_INTERVAL_US)),
+            EVO_DOWNLOAD_ADV_INTERVAL_US,
+            20000
+        );
+
+        bool debug = obj_to_bool(
+            vals[ARG_debug].u_obj != MP_OBJ_NULL
+                ? vals[ARG_debug].u_obj
+                : dict_get_default(download, MP_QSTR_debug, mp_obj_new_bool(EVO_DOWNLOAD_DEBUG)),
+            EVO_DOWNLOAD_DEBUG
+        );
+
+        int ack_every = obj_to_int(
+            vals[ARG_ack_every].u_obj != MP_OBJ_NULL
+                ? vals[ARG_ack_every].u_obj
+                : dict_get_default(download, MP_QSTR_ack_every, mp_obj_new_int(EVO_DOWNLOAD_ACK_EVERY)),
+            EVO_DOWNLOAD_ACK_EVERY,
+            1
+        );
+
+        bool sensor_streaming = obj_to_bool(
+            vals[ARG_sensor_streaming].u_obj != MP_OBJ_NULL
+                ? vals[ARG_sensor_streaming].u_obj
+                : dict_get_default(download, MP_QSTR_sensor_streaming, mp_obj_new_bool(EVO_DOWNLOAD_SENSOR_STREAMING)),
+            EVO_DOWNLOAD_SENSOR_STREAMING
+        );
+
+        int sensor_tick_ms = obj_to_int(
+            vals[ARG_sensor_tick_ms].u_obj != MP_OBJ_NULL
+                ? vals[ARG_sensor_tick_ms].u_obj
+                : dict_get_default(download, MP_QSTR_sensor_tick_ms, mp_obj_new_int(EVO_DOWNLOAD_SENSOR_TICK_MS)),
+            EVO_DOWNLOAD_SENSOR_TICK_MS,
+            20
+        );
+
+        mp_obj_t call_args[12] = {
+            MP_OBJ_NEW_QSTR(MP_QSTR_name), ble_name,
+            MP_OBJ_NEW_QSTR(MP_QSTR_adv_interval_us), mp_obj_new_int(adv_interval_us),
+            MP_OBJ_NEW_QSTR(MP_QSTR_debug), mp_obj_new_bool(debug),
+            MP_OBJ_NEW_QSTR(MP_QSTR_ack_every), mp_obj_new_int(ack_every),
+            MP_OBJ_NEW_QSTR(MP_QSTR_sensor_streaming), mp_obj_new_bool(sensor_streaming),
+            MP_OBJ_NEW_QSTR(MP_QSTR_sensor_tick_ms), mp_obj_new_int(sensor_tick_ms),
+        };
+
+        mp_call_function_n_kw(start, 0, 6, call_args);
+        nlr_pop();
+    } else {
+        mp_printf(&mp_plat_print, "EvoDownloadManager start failed\n");
     }
 
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(evo_init_obj, 0, evo_init);
 
-// ----------------------------------------------------------
+// ============================================================================
 // Unified log(*args, sep=" ", end="\n", stream="stdout")
-// Always prints to serial and, if available, also calls
-// ble_uploader.console_write(msg, stream=...)
-// ----------------------------------------------------------
+// Always prints to serial and, if available, also forwards to EvoDownloadManager.
+// ============================================================================
 
 static mp_obj_t evo_log(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
     enum {
@@ -321,16 +536,14 @@ static mp_obj_t evo_log(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) 
 
     const char *msg = vstr_null_terminated_str(&vstr);
 
-    // Always print to serial / REPL
     mp_printf(&mp_plat_print, "%s", msg);
 
-    // Also forward to ble_uploader if available
     nlr_buf_t nlr;
     if (nlr_push(&nlr) == 0) {
-        mp_obj_t ble = import_module("ble_uploader");
+        mp_obj_t manager = import_module("EvoDownloadManager");
 
         mp_obj_t dest[2];
-        mp_load_method(ble, qstr_from_str("console_write"), dest);
+        mp_load_method(manager, MP_QSTR_console_write, dest);
 
         mp_obj_t meth_args[4] = {
             dest[0],
@@ -348,42 +561,61 @@ static mp_obj_t evo_log(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) 
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(evo_log_obj, 0, evo_log);
 
-// ----------------------------------------------------------
+// ============================================================================
 // Getters
-// ----------------------------------------------------------
+// ============================================================================
 
 static mp_obj_t get_name(void) {
     mp_obj_t cfg = load_config();
-    return dict_get_default(cfg, MP_QSTR_name, new_str(DEFAULT_NAME));
+    return dict_get_default(cfg, MP_QSTR_name, new_str(EVO_DEFAULT_NAME));
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(get_name_obj, get_name);
 
 static mp_obj_t get_ble_name(void) {
     mp_obj_t cfg = load_config();
-    return dict_get_default(cfg, MP_QSTR_ble_name, new_str(DEFAULT_NAME));
+    return dict_get_default(cfg, MP_QSTR_ble_name, new_str(EVO_DEFAULT_BLE_NAME));
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(get_ble_name_obj, get_ble_name);
 
 static mp_obj_t get_wifi_name(void) {
     mp_obj_t cfg = load_config();
-    return dict_get_default(cfg, MP_QSTR_wifi_name, new_str(DEFAULT_NAME));
+    return dict_get_default(cfg, MP_QSTR_wifi_name, new_str(EVO_DEFAULT_WIFI_NAME));
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(get_wifi_name_obj, get_wifi_name);
 
 static mp_obj_t get_controller_type(void) {
     mp_obj_t cfg = load_config();
-    return dict_get_default(cfg, MP_QSTR_controller_type, new_str(DEFAULT_CONTROLLER));
+    return dict_get_default(cfg, MP_QSTR_controller_type, new_str(EVO_CONTROLLER_TYPE));
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(get_controller_type_obj, get_controller_type);
+
+static mp_obj_t get_download_config_public(void) {
+    mp_obj_t cfg = load_config();
+    return get_download_config(cfg);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(get_download_config_obj, get_download_config_public);
 
 static mp_obj_t get_config(void) {
     return load_config();
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(get_config_obj, get_config);
 
-// ----------------------------------------------------------
+// ============================================================================
 // Setters
-// ----------------------------------------------------------
+// ============================================================================
+
+static void maybe_reset(bool reset) {
+    if (!reset) {
+        return;
+    }
+
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        mp_obj_t machine = import_module("machine");
+        mp_call_function_0(mp_load_attr(machine, MP_QSTR_reset));
+        nlr_pop();
+    }
+}
 
 static mp_obj_t set_name(size_t n_args, const mp_obj_t *args) {
     mp_obj_t name = args[0];
@@ -400,7 +632,6 @@ static mp_obj_t set_name(size_t n_args, const mp_obj_t *args) {
     }
 
     mp_obj_t cfg = load_config();
-
     mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_name), name);
     mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_ble_name), name);
     mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_wifi_name), name);
@@ -410,15 +641,7 @@ static mp_obj_t set_name(size_t n_args, const mp_obj_t *args) {
         return mp_const_false;
     }
 
-    if (reset) {
-        nlr_buf_t nlr;
-        if (nlr_push(&nlr) == 0) {
-            mp_obj_t machine = import_module("machine");
-            mp_call_function_0(mp_load_attr(machine, MP_QSTR_reset));
-            nlr_pop();
-        }
-    }
-
+    maybe_reset(reset);
     return mp_const_true;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_name_obj, 1, 2, set_name);
@@ -445,15 +668,7 @@ static mp_obj_t set_ble_name(size_t n_args, const mp_obj_t *args) {
         return mp_const_false;
     }
 
-    if (reset) {
-        nlr_buf_t nlr;
-        if (nlr_push(&nlr) == 0) {
-            mp_obj_t machine = import_module("machine");
-            mp_call_function_0(mp_load_attr(machine, MP_QSTR_reset));
-            nlr_pop();
-        }
-    }
-
+    maybe_reset(reset);
     return mp_const_true;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_ble_name_obj, 1, 2, set_ble_name);
@@ -480,15 +695,7 @@ static mp_obj_t set_wifi_name(size_t n_args, const mp_obj_t *args) {
         return mp_const_false;
     }
 
-    if (reset) {
-        nlr_buf_t nlr;
-        if (nlr_push(&nlr) == 0) {
-            mp_obj_t machine = import_module("machine");
-            mp_call_function_0(mp_load_attr(machine, MP_QSTR_reset));
-            nlr_pop();
-        }
-    }
-
+    maybe_reset(reset);
     return mp_const_true;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_wifi_name_obj, 1, 2, set_wifi_name);
@@ -520,22 +727,46 @@ static mp_obj_t set_controller_type(size_t n_args, const mp_obj_t *args) {
         return mp_const_false;
     }
 
-    if (reset) {
-        nlr_buf_t nlr;
-        if (nlr_push(&nlr) == 0) {
-            mp_obj_t machine = import_module("machine");
-            mp_call_function_0(mp_load_attr(machine, MP_QSTR_reset));
-            nlr_pop();
-        }
-    }
-
+    maybe_reset(reset);
     return mp_const_true;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_controller_type_obj, 1, 2, set_controller_type);
 
-// ----------------------------------------------------------
+static mp_obj_t set_download_start_on_boot(size_t n_args, const mp_obj_t *args) {
+    bool on = mp_obj_is_true(args[0]);
+    bool reset = false;
+    if (n_args > 1) {
+        reset = mp_obj_is_true(args[1]);
+    }
+
+    if (!save_download_value(MP_QSTR_start_on_boot, mp_obj_new_bool(on))) {
+        return mp_const_false;
+    }
+
+    maybe_reset(reset);
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_download_start_on_boot_obj, 1, 2, set_download_start_on_boot);
+
+static mp_obj_t set_download_enabled(size_t n_args, const mp_obj_t *args) {
+    bool on = mp_obj_is_true(args[0]);
+    bool reset = false;
+    if (n_args > 1) {
+        reset = mp_obj_is_true(args[1]);
+    }
+
+    if (!save_download_value(MP_QSTR_enabled, mp_obj_new_bool(on))) {
+        return mp_const_false;
+    }
+
+    maybe_reset(reset);
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_download_enabled_obj, 1, 2, set_download_enabled);
+
+// ============================================================================
 // Module
-// ----------------------------------------------------------
+// ============================================================================
 
 static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_evo) },
@@ -547,12 +778,15 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_get_ble_name), MP_ROM_PTR(&get_ble_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_wifi_name), MP_ROM_PTR(&get_wifi_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_controller_type), MP_ROM_PTR(&get_controller_type_obj) },
+    { MP_ROM_QSTR(MP_QSTR_get_download_config), MP_ROM_PTR(&get_download_config_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_config), MP_ROM_PTR(&get_config_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_set_name), MP_ROM_PTR(&set_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_ble_name), MP_ROM_PTR(&set_ble_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_wifi_name), MP_ROM_PTR(&set_wifi_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_controller_type), MP_ROM_PTR(&set_controller_type_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_download_start_on_boot), MP_ROM_PTR(&set_download_start_on_boot_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_download_enabled), MP_ROM_PTR(&set_download_enabled_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_EVOPWMDriver), MP_ROM_PTR(&evo_get_pwm_singleton_obj) },
 

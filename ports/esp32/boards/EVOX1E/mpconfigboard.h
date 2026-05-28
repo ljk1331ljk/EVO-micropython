@@ -9,3 +9,8 @@
 
 #define MICROPY_HW_I2C0_SCL                 (1)
 #define MICROPY_HW_I2C0_SDA                 (2)
+
+#define EVO_DEFAULT_NAME "Evo_X1E"
+#define EVO_DEVICE_TYPE "EVO-X1E"
+#define EVO_DEFAULT_BLE_DOWNLOAD_ENABLED (false)
+#define EVO_DEFAULT_BLE_DOWNLOAD_ON_BOOT (false)

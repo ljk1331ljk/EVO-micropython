@@ -1,47 +1,3 @@
-# EvoDownloadManager.py
-# Evo Download Manager for MicroPython / ESP32-S3
-#
-# Drop-in BLE download manager.
-#
-# Main rules:
-#   - MTU_SIZE controls BLE notify/control-safe packet size.
-#   - Default MTU_SIZE is 20.
-#   - Uploads are root-directory only.
-#   - Uploaded files must be .py files.
-#   - /boot.py is allowed to be overwritten.
-#   - /EvoDownloadManager.py and config files are protected.
-#   - No RUN command.
-#   - PWA uploads files, then sends RESET.
-#   - Sensor libraries must expose .read() -> dict.
-#   - No sensor data guessing/fallback method names.
-#   - No BLEUploader backward compatibility alias.
-#
-# boot.py usage:
-#
-#   try:
-#       import EvoDownloadManager
-#       EvoDownloadManager.auto_start()
-#   except Exception as e:
-#       print("EvoDownloadManager failed:", e)
-#
-# PWA command flow:
-#   HELLO
-#   LIST
-#   CRC32
-#   PUT_BEGIN
-#   DATA frames
-#   PUT_END
-#   RESET
-#
-# CONTROL characteristic:
-#   newline-delimited JSON commands
-#
-# DATA characteristic:
-#   binary frames: [seq:u32le][offset:u32le][payload]
-#
-# NOTIFY characteristic:
-#   newline-delimited JSON replies/events
-
 import bluetooth
 import micropython
 import ujson
@@ -76,11 +32,15 @@ DATA_PAYLOAD_SIZE = max(1, MTU_SIZE - DATA_HEADER_SIZE)
 # Config
 # ============================================================================
 
-CONFIG_PATH = "/evo_download_manager_cfg.json"
+# Single shared Evo config file.
+# This file is created/owned by mod_evo.c so each firmware variant can provide
+# its own default name, device_type, and BLE download defaults.
+CONFIG_PATH = "/evo_config.json"
+BLE_DOWNLOAD_SECTION = "ble_download"
 
-_DEFAULT_CFG = {
+_DEFAULT_BLE_DOWNLOAD_CFG = {
     "enabled": True,
-    "name": "Evo",
+    "start_on_boot": True,
     "adv_interval_us": 200000,
     "debug": False,
     "ack_every": 1,
@@ -88,16 +48,17 @@ _DEFAULT_CFG = {
     "sensor_tick_ms": 50,
 }
 
+_DEFAULT_ROOT_CFG = {
+    "name": "Evo",
+    "device_type": "UNKNOWN",
+    "multiple_program_filesystem": False,
+    BLE_DOWNLOAD_SECTION: _DEFAULT_BLE_DOWNLOAD_CFG,
+}
+
 # /boot.py is intentionally NOT protected.
 # The PWA may upload /boot.py if required.
 _PROTECTED_PATHS = (
-    "/EvoDownloadManager.py",
     "/evo_config.json",
-    "/evo_download_manager_cfg.json",
-    "/ble_uploader.py",
-    "/ble_uploader_cfg.json",
-    "/evo_ble_download.py",
-    "/evo_ble_download_cfg.json",
 )
 
 _MAX_CONTROL_QUEUE = const(16)
@@ -111,17 +72,83 @@ _service_instance = None
 # Config helpers
 # ============================================================================
 
-def _cfg_save(cfg=None):
-    global _cfg_cache
+def _copy_dict(d):
+    out = {}
+    for k in d:
+        v = d[k]
+        if isinstance(v, dict):
+            out[k] = _copy_dict(v)
+        else:
+            out[k] = v
+    return out
 
-    if cfg is None:
-        cfg = dict(_DEFAULT_CFG)
 
+def _root_cfg_default():
+    return _copy_dict(_DEFAULT_ROOT_CFG)
+
+
+def _root_cfg_normalise(root):
+    if not isinstance(root, dict):
+        root = {}
+
+    cfg = _root_cfg_default()
+
+    # User-editable global settings.
+    if "name" in root:
+        cfg["name"] = str(root.get("name", "Evo"))[:24]
+
+    # Read-only/fixed identity created by mod_evo.c. EvoDownloadManager never
+    # writes this unless it is creating an emergency fallback config.
+    if "device_type" in root:
+        cfg["device_type"] = str(root.get("device_type", "UNKNOWN"))
+
+    if "multiple_program_filesystem" in root:
+        cfg["multiple_program_filesystem"] = bool(
+            root.get("multiple_program_filesystem", False)
+        )
+
+    section = root.get(BLE_DOWNLOAD_SECTION, {})
+    if not isinstance(section, dict):
+        section = {}
+
+    ble = _copy_dict(_DEFAULT_BLE_DOWNLOAD_CFG)
+    for k in section:
+        if k in ble:
+            ble[k] = section[k]
+
+    try:
+        ble["enabled"] = bool(ble.get("enabled", True))
+        ble["start_on_boot"] = bool(ble.get("start_on_boot", True))
+        ble["adv_interval_us"] = int(ble.get("adv_interval_us", 200000))
+        ble["debug"] = bool(ble.get("debug", False))
+        ble["ack_every"] = max(1, int(ble.get("ack_every", 1)))
+        ble["sensor_streaming"] = bool(ble.get("sensor_streaming", True))
+        ble["sensor_tick_ms"] = max(20, int(ble.get("sensor_tick_ms", 50)))
+    except Exception:
+        ble = _copy_dict(_DEFAULT_BLE_DOWNLOAD_CFG)
+
+    cfg[BLE_DOWNLOAD_SECTION] = ble
+    return cfg
+
+
+def _root_cfg_load():
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            raw = f.read() or "{}"
+            root = ujson.loads(raw)
+    except Exception:
+        root = _root_cfg_default()
+        _root_cfg_save(root)
+
+    return _root_cfg_normalise(root)
+
+
+def _root_cfg_save(root):
     tmp = CONFIG_PATH + ".tmp"
 
     try:
         with open(tmp, "w") as f:
-            f.write(ujson.dumps(cfg))
+            f.write(ujson.dumps(root))
 
         try:
             os.remove(CONFIG_PATH)
@@ -132,16 +159,16 @@ def _cfg_save(cfg=None):
             os.rename(tmp, CONFIG_PATH)
         except Exception:
             with open(CONFIG_PATH, "w") as f:
-                f.write(ujson.dumps(cfg))
+                f.write(ujson.dumps(root))
             try:
                 os.remove(tmp)
             except Exception:
                 pass
 
-        _cfg_cache = cfg
+        return True
 
     except Exception:
-        pass
+        return False
 
 
 def _cfg_load():
@@ -150,38 +177,52 @@ def _cfg_load():
     if _cfg_cache is not None:
         return _cfg_cache
 
-    cfg = dict(_DEFAULT_CFG)
-    created_new = False
+    root = _root_cfg_load()
+    ble = root.get(BLE_DOWNLOAD_SECTION, {})
 
-    try:
-        with open(CONFIG_PATH, "r") as f:
-            raw = f.read() or "{}"
-            d = ujson.loads(raw)
-            if isinstance(d, dict):
-                for k in d:
-                    if k in _DEFAULT_CFG:
-                        cfg[k] = d[k]
-    except Exception:
-        created_new = True
+    cfg = _copy_dict(_DEFAULT_BLE_DOWNLOAD_CFG)
+    for k in ble:
+        if k in cfg:
+            cfg[k] = ble[k]
 
-    try:
-        cfg["enabled"] = bool(cfg.get("enabled", True))
-        cfg["name"] = str(cfg.get("name", "Evo"))[:24]
-        cfg["adv_interval_us"] = int(cfg.get("adv_interval_us", 200000))
-        cfg["debug"] = bool(cfg.get("debug", False))
-        cfg["ack_every"] = max(1, int(cfg.get("ack_every", 1)))
-        cfg["sensor_streaming"] = bool(cfg.get("sensor_streaming", True))
-        cfg["sensor_tick_ms"] = max(20, int(cfg.get("sensor_tick_ms", 50)))
-    except Exception:
-        cfg = dict(_DEFAULT_CFG)
-        created_new = True
+    # Expose shared top-level values as read-only context to this module.
+    cfg["name"] = str(root.get("name", "Evo"))[:24]
+    cfg["device_type"] = str(root.get("device_type", "UNKNOWN"))
+    cfg["multiple_program_filesystem"] = bool(
+        root.get("multiple_program_filesystem", False)
+    )
 
     _cfg_cache = cfg
-
-    if created_new:
-        _cfg_save(cfg)
-
     return cfg
+
+
+def _cfg_save(cfg=None):
+    global _cfg_cache
+
+    root = _root_cfg_load()
+
+    if cfg is None:
+        cfg = _cfg_load()
+
+    # Only write BLE download settings here. Top-level name and other shared
+    # settings should normally be managed by mod_evo.c, but set_name_persistent()
+    # below is kept as a convenience for this module's CLI.
+    ble = root.get(BLE_DOWNLOAD_SECTION, {})
+    if not isinstance(ble, dict):
+        ble = {}
+
+    for k in _DEFAULT_BLE_DOWNLOAD_CFG:
+        if k in cfg:
+            ble[k] = cfg[k]
+
+    root[BLE_DOWNLOAD_SECTION] = ble
+
+    ok = _root_cfg_save(root)
+    if ok:
+        _cfg_cache = None
+        _cfg_cache = _cfg_load()
+
+    return ok
 
 
 def config_get():
@@ -192,19 +233,29 @@ def config_set(**kwargs):
     cfg = _cfg_load()
 
     for k, v in kwargs.items():
-        if k in _DEFAULT_CFG:
+        if k in _DEFAULT_BLE_DOWNLOAD_CFG:
             cfg[k] = v
 
     _cfg_save(cfg)
-    return cfg
+    return _cfg_load()
 
 
 def enable_persistent(on=True):
     return config_set(enabled=bool(on))
 
 
+def start_on_boot_persistent(on=True):
+    return config_set(start_on_boot=bool(on))
+
+
 def set_name_persistent(name):
-    cfg = config_set(name=str(name)[:24])
+    global _cfg_cache
+
+    root = _root_cfg_load()
+    root["name"] = str(name)[:24]
+    _root_cfg_save(root)
+    _cfg_cache = None
+    cfg = _cfg_load()
 
     if _service_instance is not None:
         try:
@@ -225,7 +276,6 @@ def sensor_streaming_persistent(on=True):
 
 def set_sensor_tick_persistent(ms=50):
     return config_set(sensor_tick_ms=max(20, int(ms)))
-
 
 # ============================================================================
 # Utility helpers
@@ -1723,30 +1773,30 @@ def start(
     cfg = _cfg_load()
 
     if name is None:
-        name = cfg.get("name", _DEFAULT_CFG["name"])
+        name = cfg.get("name", _DEFAULT_BLE_DOWNLOAD_CFG["name"])
 
     if adv_interval_us is None:
         adv_interval_us = int(cfg.get(
             "adv_interval_us",
-            _DEFAULT_CFG["adv_interval_us"],
+            _DEFAULT_BLE_DOWNLOAD_CFG["adv_interval_us"],
         ))
 
     if debug is None:
-        debug = bool(cfg.get("debug", _DEFAULT_CFG["debug"]))
+        debug = bool(cfg.get("debug", _DEFAULT_BLE_DOWNLOAD_CFG["debug"]))
 
     if ack_every is None:
-        ack_every = int(cfg.get("ack_every", _DEFAULT_CFG["ack_every"]))
+        ack_every = int(cfg.get("ack_every", _DEFAULT_BLE_DOWNLOAD_CFG["ack_every"]))
 
     if sensor_streaming is None:
         sensor_streaming = bool(cfg.get(
             "sensor_streaming",
-            _DEFAULT_CFG["sensor_streaming"],
+            _DEFAULT_BLE_DOWNLOAD_CFG["sensor_streaming"],
         ))
 
     if sensor_tick_ms is None:
         sensor_tick_ms = int(cfg.get(
             "sensor_tick_ms",
-            _DEFAULT_CFG["sensor_tick_ms"],
+            _DEFAULT_BLE_DOWNLOAD_CFG["sensor_tick_ms"],
         ))
 
     if _service_instance is None:
@@ -1789,6 +1839,9 @@ def auto_start():
     if not cfg.get("enabled", True):
         return None
 
+    if not cfg.get("start_on_boot", True):
+        return None
+
     return start()
 
 
@@ -1813,9 +1866,13 @@ def status():
 
     return {
         "enabled": cfg.get("enabled", True),
+        "start_on_boot": cfg.get("start_on_boot", True),
         "name": cfg.get("name"),
+        "device_type": cfg.get("device_type"),
+        "multiple_program_filesystem": cfg.get("multiple_program_filesystem", False),
         "adv_interval_us": cfg.get("adv_interval_us"),
-        "max_chunk": cfg.get("max_chunk"),
+        "mtu_size": MTU_SIZE,
+        "data_payload_size": DATA_PAYLOAD_SIZE,
         "ack_every": cfg.get("ack_every", 1),
         "sensor_streaming": cfg.get("sensor_streaming", True),
         "sensor_tick_ms": cfg.get("sensor_tick_ms", 50),
@@ -1892,6 +1949,13 @@ def cli(cmd=None):
             set_ack_every_persistent(int(parts[1]))
         return status()
 
+    if head in ("boot", "start_on_boot"):
+        if len(parts) >= 2 and parts[1].lower() in ("on", "enable", "1", "true"):
+            start_on_boot_persistent(True)
+        elif len(parts) >= 2 and parts[1].lower() in ("off", "disable", "0", "false"):
+            start_on_boot_persistent(False)
+        return status()
+
     if head == "sensor":
         if len(parts) >= 2 and parts[1].lower() in ("on", "enable", "1", "true"):
             sensor_streaming_persistent(True)
@@ -1917,9 +1981,7 @@ def cli(cmd=None):
     return {
         "error": "unknown command",
         "cmd": c,
-        "hint": "status|on|off|name <x>|ack <n>|sensor on/off|start|stop",
+        "hint": "status|on|off|boot on/off|name <x>|ack <n>|sensor on/off|start|stop",
     }
 
 
-# Backward-compatible class alias.
-BLEUploader = EvoDownloadManager
