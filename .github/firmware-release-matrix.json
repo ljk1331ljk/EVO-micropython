@@ -1,0 +1,18 @@
+[
+  {
+    "port": "esp32",
+    "board": "EVOX1E",
+    "variant": "SPIRAM_OCT",
+    "user_c_modules": "../../ports/esp32/usermod",
+    "frozen_manifest": "boards/EVOX1E/manifest.py",
+    "artifacts": "bin uf2 app-bin elf map"
+  },
+  {
+    "port": "esp32",
+    "board": "EVOX1P",
+    "variant": "SPIRAM_OCT",
+    "user_c_modules": "../../ports/esp32/usermod",
+    "frozen_manifest": "boards/EVOX1P/manifest.py",
+    "artifacts": "bin uf2 app-bin elf map"
+  }
+]

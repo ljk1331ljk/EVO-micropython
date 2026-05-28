@@ -1,0 +1,189 @@
+name: Firmware release
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      matrix_json:
+        description: 'Optional JSON array of firmware targets. Leave blank to use .github/firmware-release-matrix.json.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Newest supported ESP-IDF version, should match ports/esp32/README.md.
+  IDF_NEWEST_VER: "v5.5.1"
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read firmware target matrix
+        id: matrix
+        shell: bash
+        env:
+          INPUT_MATRIX_JSON: ${{ github.event.inputs.matrix_json || '' }}
+        run: |
+          set -euo pipefail
+
+          raw="${INPUT_MATRIX_JSON}"
+          if [ -z "${raw}" ] || [ "${raw}" = "null" ]; then
+            raw="$(jq -c . .github/firmware-release-matrix.json)"
+          fi
+
+          jq -e '
+            type == "array"
+            and length > 0
+            and all(.[]; has("port") and has("board") and has("artifacts"))
+          ' <<< "${raw}" >/dev/null
+
+          echo "matrix=$(jq -c '{include: .}' <<< "${raw}")" >> "${GITHUB_OUTPUT}"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      MAKEOPTS: -j2
+      PORT: ${{ matrix.port }}
+      BOARD: ${{ matrix.board }}
+      VARIANT: ${{ matrix.variant || '' }}
+      USER_C_MODULES: ${{ matrix.user_c_modules || '' }}
+      FROZEN_MANIFEST: ${{ matrix.frozen_manifest || '' }}
+      ARTIFACTS: ${{ matrix.artifacts }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install build dependencies
+        if: ${{ matrix.port == 'esp32' }}
+        uses: ./.github/actions/setup_esp32
+        with:
+          idf_ver: ${{ env.IDF_NEWEST_VER }}
+          ccache_key: firmware-release-${{ matrix.board }}-${{ matrix.variant || 'default' }}
+
+      - name: Build firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${PORT}" != "esp32" ]; then
+            echo "Unsupported firmware release port: ${PORT}"
+            echo "Currently supported: esp32"
+            exit 1
+          fi
+
+          make ${MAKEOPTS} -C mpy-cross
+
+          build_dir="${RUNNER_TEMP}/micropython-${PORT}-${BOARD}"
+          make_args=(BOARD="${BOARD}" BUILD="${build_dir}")
+          if [ -n "${VARIANT}" ]; then
+            make_args+=(BOARD_VARIANT="${VARIANT}")
+          fi
+          if [ -n "${USER_C_MODULES}" ]; then
+            make_args+=(USER_C_MODULES="${USER_C_MODULES}")
+          fi
+          if [ -n "${FROZEN_MANIFEST}" ]; then
+            make_args+=(FROZEN_MANIFEST="${FROZEN_MANIFEST}")
+          fi
+
+          make ${MAKEOPTS} -C "ports/${PORT}" "${make_args[@]}" submodules
+          make ${MAKEOPTS} -C "ports/${PORT}" "${make_args[@]}"
+
+          fw_date="$(date -u '+%Y%m%d')"
+          fw_version="$(git describe --tags --dirty --always --match 'v[1-9].*' --abbrev=10)"
+          base_name="${BOARD}"
+          if [ -n "${VARIANT}" ]; then
+            base_name="${base_name}-${VARIANT}"
+          fi
+
+          mkdir -p dist
+          for ext in ${ARTIFACTS}; do
+            case "${ext}" in
+              app-bin)
+                src="${build_dir}/micropython.bin"
+                dest_ext="app-bin"
+                ;;
+              elf|map)
+                src="${build_dir}/micropython.${ext}"
+                dest_ext="${ext}"
+                ;;
+              *)
+                src="${build_dir}/firmware.${ext}"
+                dest_ext="${ext}"
+                ;;
+            esac
+            if [ ! -f "${src}" ]; then
+              echo "Expected artifact not found: ${src}"
+              exit 1
+            fi
+            cp "${src}" "dist/${base_name}-${fw_date}-${fw_version}.${dest_ext}"
+          done
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.port }}-${{ matrix.board }}${{ matrix.variant && format('-{0}', matrix.variant) || '' }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download firmware artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+            title="Firmware ${tag}"
+          else
+            tag="firmware-$(date -u '+%Y%m%d')-${GITHUB_SHA::7}"
+            title="Firmware ${GITHUB_SHA::7}"
+          fi
+
+          notes_file="${RUNNER_TEMP}/release-notes.md"
+          {
+            echo "Automated firmware build for ${GITHUB_REPOSITORY}@${GITHUB_SHA}."
+            echo
+            echo "Artifacts:"
+            for file in release-assets/*; do
+              echo "- $(basename "${file}")"
+            done
+          } > "${notes_file}"
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" release-assets/* --clobber
+          else
+            gh release create "${tag}" release-assets/* \
+              --target "${GITHUB_SHA}" \
+              --title "${title}" \
+              --notes-file "${notes_file}"
+          fi
