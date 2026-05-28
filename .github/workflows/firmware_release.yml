@@ -105,6 +105,12 @@ jobs:
             make_args+=(FROZEN_MANIFEST="${RELEASE_FROZEN_MANIFEST}")
           fi
 
+          if [ ! -f "./esp-idf/export.sh" ]; then
+            echo "ESP-IDF export script not found at ./esp-idf/export.sh"
+            exit 1
+          fi
+          source ./esp-idf/export.sh
+
           make ${MAKEOPTS} -C "ports/${PORT}" "${make_args[@]}" submodules
           make ${MAKEOPTS} -C "ports/${PORT}" "${make_args[@]}"
 
