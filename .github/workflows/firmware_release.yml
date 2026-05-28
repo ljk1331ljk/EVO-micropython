@@ -88,8 +88,6 @@ jobs:
             exit 1
           fi
 
-          make ${MAKEOPTS} -C mpy-cross
-
           repo_root="${GITHUB_WORKSPACE:-$(pwd)}"
           resolve_repo_path() {
             case "$1" in
@@ -97,6 +95,9 @@ jobs:
               *) printf '%s/%s\n' "${repo_root}" "$1" ;;
             esac
           }
+
+          make ${MAKEOPTS} -C mpy-cross
+          export MICROPY_MPYCROSS="${repo_root}/mpy-cross/build/mpy-cross"
 
           build_dir="${RUNNER_TEMP}/micropython-${PORT}-${BOARD}"
           make_args=(BOARD="${BOARD}" BUILD="${build_dir}")
