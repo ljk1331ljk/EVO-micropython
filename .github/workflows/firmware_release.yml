@@ -2,8 +2,6 @@ name: Firmware release
 
 on:
   push:
-    branches:
-      - master
     tags:
       - 'v*'
   workflow_dispatch:
@@ -202,3 +200,26 @@ jobs:
               --title "${title}" \
               --notes-file "${notes_file}"
           fi
+
+          latest_notes_file="${RUNNER_TEMP}/latest-release-notes.md"
+          {
+            echo "Latest stable EVO MicroPython firmware."
+            echo
+            echo "Current version: ${tag}"
+            echo
+            echo "The PWA can fetch the stable manifest from:"
+            echo
+            echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/latest.json"
+          } > "${latest_notes_file}"
+
+          if gh release view latest >/dev/null 2>&1; then
+            gh release delete latest --cleanup-tag --yes
+          fi
+
+          git tag -f latest "${GITHUB_SHA}"
+          git push origin refs/tags/latest --force
+
+          gh release create latest release-assets/* \
+            --target "${GITHUB_SHA}" \
+            --title "Latest Firmware" \
+            --notes-file "${latest_notes_file}"
