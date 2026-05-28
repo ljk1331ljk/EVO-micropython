@@ -319,11 +319,36 @@ jobs:
           cp release-assets/* "pages-site/firmware/${tag}/"
           cp release-assets/* "pages-site/firmware/latest/"
 
+          for board in EVOX1E EVOX1P; do
+            board_lower="$(printf '%s' "${board}" | tr '[:upper:]' '[:lower:]')"
+            for base in "pages-site/firmware/${tag}" "pages-site/firmware/latest"; do
+              mkdir -p "${base}/${board}" "${base}/${board_lower}"
+              cp "${base}/${board}-"*".bootloader.bin" "${base}/${board}/bootloader.bin"
+              cp "${base}/${board}-"*".partition-table.bin" "${base}/${board}/partition-table.bin"
+              cp "${base}/${board}-"*".micropython.bin" "${base}/${board}/micropython.bin"
+              cp "${base}/${board}/bootloader.bin" "${base}/${board_lower}/bootloader.bin"
+              cp "${base}/${board}/partition-table.bin" "${base}/${board_lower}/partition-table.bin"
+              cp "${base}/${board}/micropython.bin" "${base}/${board_lower}/micropython.bin"
+            done
+          done
+
           jq --arg base_url "${version_base_url}" '
             .base_url = $base_url
             | .devices |= map(
-                .assets |= with_entries(.value.url = ($base_url + "/" + .value.file))
-                | .flash_sequence |= map(.url = ($base_url + "/" + .file))
+                .assets.bootloader.url = ($base_url + "/" + (.board | ascii_downcase) + "/bootloader.bin")
+                | .assets.partition_table.url = ($base_url + "/" + (.board | ascii_downcase) + "/partition-table.bin")
+                | .assets.application.url = ($base_url + "/" + (.board | ascii_downcase) + "/micropython.bin")
+                | .flash_sequence |= map(
+                    if .file | endswith(".bootloader.bin") then
+                      .url = ($base_url + "/" + (.file | split("-")[0] | ascii_downcase) + "/bootloader.bin")
+                    elif .file | endswith(".partition-table.bin") then
+                      .url = ($base_url + "/" + (.file | split("-")[0] | ascii_downcase) + "/partition-table.bin")
+                    elif .file | endswith(".micropython.bin") then
+                      .url = ($base_url + "/" + (.file | split("-")[0] | ascii_downcase) + "/micropython.bin")
+                    else
+                      .url = ($base_url + "/" + .file)
+                    end
+                  )
               )
           ' release-assets/firmware-manifest.json > "pages-site/firmware/${tag}/firmware-manifest.json"
           cp "pages-site/firmware/${tag}/firmware-manifest.json" "pages-site/firmware/${tag}/latest.json"
@@ -331,8 +356,20 @@ jobs:
           jq --arg base_url "${latest_base_url}" '
             .base_url = $base_url
             | .devices |= map(
-                .assets |= with_entries(.value.url = ($base_url + "/" + .value.file))
-                | .flash_sequence |= map(.url = ($base_url + "/" + .file))
+                .assets.bootloader.url = ($base_url + "/" + (.board | ascii_downcase) + "/bootloader.bin")
+                | .assets.partition_table.url = ($base_url + "/" + (.board | ascii_downcase) + "/partition-table.bin")
+                | .assets.application.url = ($base_url + "/" + (.board | ascii_downcase) + "/micropython.bin")
+                | .flash_sequence |= map(
+                    if .file | endswith(".bootloader.bin") then
+                      .url = ($base_url + "/" + (.file | split("-")[0] | ascii_downcase) + "/bootloader.bin")
+                    elif .file | endswith(".partition-table.bin") then
+                      .url = ($base_url + "/" + (.file | split("-")[0] | ascii_downcase) + "/partition-table.bin")
+                    elif .file | endswith(".micropython.bin") then
+                      .url = ($base_url + "/" + (.file | split("-")[0] | ascii_downcase) + "/micropython.bin")
+                    else
+                      .url = ($base_url + "/" + .file)
+                    end
+                  )
               )
           ' release-assets/firmware-manifest.json > "pages-site/firmware/latest/firmware-manifest.json"
           cp "pages-site/firmware/latest/firmware-manifest.json" "pages-site/firmware/latest/latest.json"
