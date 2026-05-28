@@ -7,9 +7,11 @@
     "schema_version",
     "name",
     "version",
+    "channel",
     "repository",
     "commit",
     "release_tag",
+    "prerelease",
     "generated_at",
     "devices"
   ],
@@ -23,6 +25,12 @@
     "version": {
       "type": "string"
     },
+    "channel": {
+      "enum": [
+        "stable",
+        "beta"
+      ]
+    },
     "repository": {
       "type": "string"
     },
@@ -31,6 +39,9 @@
     },
     "release_tag": {
       "type": "string"
+    },
+    "prerelease": {
+      "type": "boolean"
     },
     "generated_at": {
       "type": "string",

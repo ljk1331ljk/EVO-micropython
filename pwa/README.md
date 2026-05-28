@@ -1,10 +1,10 @@
 # Firmware Release Assets for PWA
 
 The firmware release workflow publishes firmware to GitHub Releases and mirrors
-the PWA-facing files to GitHub Pages:
+the PWA-facing files to GitHub Pages.
 
-- `firmware-manifest.json`: stable machine-readable manifest for the release.
-- `latest.json`: copy of the same manifest, intended for simple PWA lookup.
+Stable tags use normal semantic versions, for example `v1.2.0`. Beta tags must
+include `beta`, for example `v1.3.0-beta.1`.
 
 For the newest stable release, the PWA can fetch a version-independent manifest:
 
@@ -12,8 +12,29 @@ For the newest stable release, the PWA can fetch a version-independent manifest:
 https://ljk1331ljk.github.io/EVO-micropython/firmware/latest/latest.json
 ```
 
-Pinned release artifacts are still available from GitHub Releases. The Pages
-endpoint is intended for the PWA's newest stable firmware lookup.
+For the newest beta release, the PWA can fetch:
+
+```text
+https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/latest.json
+```
+
+For the full firmware picker, including all pinned stable versions and the
+latest beta, the PWA can fetch:
+
+```text
+https://ljk1331ljk.github.io/EVO-micropython/firmware/index.json
+```
+
+Pinned release artifacts are still available from GitHub Releases. Stable
+firmware is mirrored under `firmware/<tag>/` and `firmware/latest/`; beta
+firmware is mirrored under `firmware/<tag>/` and `firmware/beta/`.
+
+Each manifest includes:
+
+- `firmware-manifest.json`: machine-readable manifest for the release.
+- `latest.json`: copy of the same manifest for that release directory.
+- `channel`: either `stable` or `beta`.
+- `prerelease`: `true` for beta firmware.
 
 Each device entry includes a `flash_sequence` array with the files and offsets
 needed by ESP32 flashing tools. Each entry also includes a direct `url` field
