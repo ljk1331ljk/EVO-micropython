@@ -36,13 +36,15 @@ Each manifest includes:
 - `channel`: either `stable` or `beta`.
 - `prerelease`: `true` for beta firmware.
 
-Each device entry includes a `flash_sequence` array with the files and offsets
-needed by ESP32 flashing tools. Each entry also includes a direct `url` field
-that points at the matching GitHub Pages firmware file:
+Each device entry includes a `flash_sequence` array with the files and addresses
+needed by ESP32 flashing tools:
 
-- `bootloader` at `0x1000`
-- `partition_table` at `0x8000`
-- `application` (`micropython.bin`) at `0x10000`
+- `bootloader.bin` at `0x0`
+- `partition-table.bin` at `0x8000`
+- `micropython.bin` at `0x10000`
+
+Each device asset also includes a direct `url` field that points at the matching
+GitHub Pages firmware file.
 
 The manifest also includes SHA-256 hashes and file sizes for validation before
 flashing.

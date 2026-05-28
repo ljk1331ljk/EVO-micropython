@@ -100,7 +100,7 @@
             "type": "array",
             "minItems": 3,
             "items": {
-              "$ref": "#/$defs/flash_asset"
+              "$ref": "#/$defs/flash_entry"
             }
           }
         }
@@ -136,17 +136,26 @@
         }
       }
     },
-    "flash_asset": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/asset"
+    "flash_entry": {
+      "type": "object",
+      "required": [
+        "path",
+        "address",
+        "description"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
         },
-        {
-          "required": [
-            "offset"
-          ]
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "description": {
+          "type": "string"
         }
-      ]
+      },
+      "additionalProperties": false
     }
   }
 }
