@@ -6,7 +6,13 @@ GitHub Release:
 - `firmware-manifest.json`: stable machine-readable manifest for the release.
 - `latest.json`: copy of the same manifest, intended for simple PWA lookup.
 
-For the stable `v1.0.0` release, the PWA can fetch:
+For the newest stable release, the PWA can fetch a version-independent manifest:
+
+```text
+https://github.com/ljk1331ljk/EVO-micropython/releases/download/latest/latest.json
+```
+
+For a pinned release, replace `latest` with the firmware version tag:
 
 ```text
 https://github.com/ljk1331ljk/EVO-micropython/releases/download/v1.0.0/latest.json
