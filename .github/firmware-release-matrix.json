@@ -1,0 +1,8 @@
+[
+  {
+    "port": "rp2",
+    "board": "RPI_PICO",
+    "variant": "",
+    "artifacts": "uf2"
+  }
+]
