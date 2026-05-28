@@ -67,6 +67,9 @@ jobs:
       RELEASE_USER_C_MODULES: ${{ matrix.user_c_modules || '' }}
       RELEASE_FROZEN_MANIFEST: ${{ matrix.frozen_manifest || '' }}
       ARTIFACTS: ${{ matrix.artifacts }}
+      DEVICE_ID: ${{ matrix.device_id || matrix.board }}
+      PRODUCT: ${{ matrix.product || matrix.board }}
+      CHIP: ${{ matrix.chip || 'esp32' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -128,27 +131,78 @@ jobs:
           fi
 
           mkdir -p dist
+          manifest_assets="${RUNNER_TEMP}/${base_name}-assets.jsonl"
           for ext in ${ARTIFACTS}; do
             case "${ext}" in
+              bootloader-bin)
+                src="${build_dir}/bootloader/bootloader.bin"
+                dest_ext="bootloader.bin"
+                asset_type="bootloader"
+                flash_offset="0x1000"
+                ;;
+              partition-table-bin)
+                src="${build_dir}/partition_table/partition-table.bin"
+                dest_ext="partition-table.bin"
+                asset_type="partition_table"
+                flash_offset="0x8000"
+                ;;
               app-bin)
                 src="${build_dir}/micropython.bin"
-                dest_ext="app-bin"
+                dest_ext="micropython.bin"
+                asset_type="application"
+                flash_offset="0x10000"
                 ;;
               elf|map)
                 src="${build_dir}/micropython.${ext}"
                 dest_ext="${ext}"
+                asset_type="${ext}"
+                flash_offset=""
                 ;;
               *)
                 src="${build_dir}/firmware.${ext}"
                 dest_ext="${ext}"
+                asset_type="${ext}"
+                if [ "${ext}" = "bin" ]; then
+                  flash_offset="0x0"
+                else
+                  flash_offset=""
+                fi
                 ;;
             esac
             if [ ! -f "${src}" ]; then
               echo "Expected artifact not found: ${src}"
               exit 1
             fi
-            cp "${src}" "dist/${base_name}-${fw_date}-${fw_version}.${dest_ext}"
+            dest="dist/${base_name}-${fw_date}-${fw_version}.${dest_ext}"
+            cp "${src}" "${dest}"
+            jq -n \
+              --arg type "${asset_type}" \
+              --arg file "$(basename "${dest}")" \
+              --arg offset "${flash_offset}" \
+              --arg sha256 "$(sha256sum "${dest}" | cut -d' ' -f1)" \
+              --argjson size "$(stat -c '%s' "${dest}")" \
+              '{type: $type, file: $file, offset: $offset, sha256: $sha256, size: $size}' \
+              >> "${manifest_assets}"
           done
+
+          jq -n \
+            --arg id "${DEVICE_ID}" \
+            --arg board "${BOARD}" \
+            --arg variant "${VARIANT}" \
+            --arg product "${PRODUCT}" \
+            --arg port "${PORT}" \
+            --arg chip "${CHIP}" \
+            --slurpfile assets "${manifest_assets}" \
+            '{
+              id: $id,
+              board: $board,
+              variant: $variant,
+              product: $product,
+              port: $port,
+              chip: $chip,
+              assets: ($assets | map({(.type): del(.type)}) | add),
+              flash_sequence: ($assets | map(select(.offset != "") | {offset, file, sha256, size}))
+            }' > "dist/${base_name}-device-manifest.json"
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
@@ -187,11 +241,37 @@ jobs:
             title="Firmware ${GITHUB_SHA::7}"
           fi
 
+          jq -s \
+            --arg schema_version "1" \
+            --arg name "EVO MicroPython Firmware" \
+            --arg version "${tag}" \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg commit "${GITHUB_SHA}" \
+            --arg release_tag "${tag}" \
+            --arg generated_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+            '{
+              schema_version: ($schema_version | tonumber),
+              name: $name,
+              version: $version,
+              repository: $repository,
+              commit: $commit,
+              release_tag: $release_tag,
+              generated_at: $generated_at,
+              devices: .
+            }' release-assets/*-device-manifest.json > release-assets/firmware-manifest.json
+
+          cp release-assets/firmware-manifest.json release-assets/latest.json
+          rm release-assets/*-device-manifest.json
+
           notes_file="${RUNNER_TEMP}/release-notes.md"
           {
-            echo "Automated firmware build for ${GITHUB_REPOSITORY}@${GITHUB_SHA}."
+            echo "Stable EVO MicroPython firmware ${tag} for ${GITHUB_REPOSITORY}@${GITHUB_SHA}."
             echo
-            echo "Artifacts:"
+            echo "PWA manifest assets:"
+            echo "- firmware-manifest.json"
+            echo "- latest.json"
+            echo
+            echo "Firmware assets:"
             for file in release-assets/*; do
               echo "- $(basename "${file}")"
             done
@@ -214,7 +294,7 @@ jobs:
             echo
             echo "The PWA can fetch the stable manifest from:"
             echo
-            echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/latest.json"
+            echo "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/firmware/latest/latest.json"
           } > "${latest_notes_file}"
 
           if gh release view latest >/dev/null 2>&1; then
