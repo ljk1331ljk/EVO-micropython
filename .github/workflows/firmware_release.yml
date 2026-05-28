@@ -2,8 +2,6 @@ name: Firmware release
 
 on:
   push:
-    branches:
-      - master
     tags:
       - 'v*'
   workflow_dispatch:
@@ -15,10 +13,12 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  pages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   # Newest supported ESP-IDF version, should match ports/esp32/README.md.
@@ -64,8 +64,8 @@ jobs:
       PORT: ${{ matrix.port }}
       BOARD: ${{ matrix.board }}
       VARIANT: ${{ matrix.variant || '' }}
-      USER_C_MODULES: ${{ matrix.user_c_modules || '' }}
-      FROZEN_MANIFEST: ${{ matrix.frozen_manifest || '' }}
+      RELEASE_USER_C_MODULES: ${{ matrix.user_c_modules || '' }}
+      RELEASE_FROZEN_MANIFEST: ${{ matrix.frozen_manifest || '' }}
       ARTIFACTS: ${{ matrix.artifacts }}
     steps:
       - uses: actions/checkout@v6
@@ -88,19 +88,34 @@ jobs:
             exit 1
           fi
 
+          repo_root="${GITHUB_WORKSPACE:-$(pwd)}"
+          resolve_repo_path() {
+            case "$1" in
+              /*) printf '%s\n' "$1" ;;
+              *) printf '%s/%s\n' "${repo_root}" "$1" ;;
+            esac
+          }
+
           make ${MAKEOPTS} -C mpy-cross
+          export MICROPY_MPYCROSS="${repo_root}/mpy-cross/build/mpy-cross"
 
           build_dir="${RUNNER_TEMP}/micropython-${PORT}-${BOARD}"
           make_args=(BOARD="${BOARD}" BUILD="${build_dir}")
           if [ -n "${VARIANT}" ]; then
             make_args+=(BOARD_VARIANT="${VARIANT}")
           fi
-          if [ -n "${USER_C_MODULES}" ]; then
-            make_args+=(USER_C_MODULES="${USER_C_MODULES}")
+          if [ -n "${RELEASE_USER_C_MODULES}" ]; then
+            make_args+=(USER_C_MODULES="$(resolve_repo_path "${RELEASE_USER_C_MODULES}")")
           fi
-          if [ -n "${FROZEN_MANIFEST}" ]; then
-            make_args+=(FROZEN_MANIFEST="${FROZEN_MANIFEST}")
+          if [ -n "${RELEASE_FROZEN_MANIFEST}" ]; then
+            make_args+=(FROZEN_MANIFEST="$(resolve_repo_path "${RELEASE_FROZEN_MANIFEST}")")
           fi
+
+          if [ ! -f "./esp-idf/export.sh" ]; then
+            echo "ESP-IDF export script not found at ./esp-idf/export.sh"
+            exit 1
+          fi
+          source ./esp-idf/export.sh
 
           make ${MAKEOPTS} -C "ports/${PORT}" "${make_args[@]}" submodules
           make ${MAKEOPTS} -C "ports/${PORT}" "${make_args[@]}"
@@ -147,6 +162,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+    outputs:
+      pages_url: ${{ steps.pages.outputs.pages_url }}
     steps:
       - uses: actions/checkout@v6
 
@@ -156,7 +173,8 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Publish GitHub release
+      - name: Publish GitHub release and prepare Pages assets
+        id: pages
         shell: bash
         run: |
           set -euo pipefail
@@ -187,3 +205,91 @@ jobs:
               --title "${title}" \
               --notes-file "${notes_file}"
           fi
+
+          latest_notes_file="${RUNNER_TEMP}/latest-release-notes.md"
+          {
+            echo "Latest stable EVO MicroPython firmware."
+            echo
+            echo "Current version: ${tag}"
+            echo
+            echo "The PWA can fetch the stable manifest from:"
+            echo
+            echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/latest.json"
+          } > "${latest_notes_file}"
+
+          if gh release view latest >/dev/null 2>&1; then
+            gh release delete latest --cleanup-tag --yes
+          fi
+
+          git tag -f latest "${GITHUB_SHA}"
+          git push origin refs/tags/latest --force
+
+          gh release create latest release-assets/* \
+            --target "${GITHUB_SHA}" \
+            --title "Latest Firmware" \
+            --notes-file "${latest_notes_file}"
+
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          pages_root="https://${owner}.github.io/${repo}"
+          version_base_url="${pages_root}/firmware/${tag}"
+          latest_base_url="${pages_root}/firmware/latest"
+
+          mkdir -p "pages-site/firmware/${tag}" "pages-site/firmware/latest"
+          cp release-assets/* "pages-site/firmware/${tag}/"
+          cp release-assets/* "pages-site/firmware/latest/"
+
+          jq --arg base_url "${version_base_url}" '
+            .base_url = $base_url
+            | .devices |= map(
+                .assets |= with_entries(.value.url = ($base_url + "/" + .value.file))
+                | .flash_sequence |= map(.url = ($base_url + "/" + .file))
+              )
+          ' release-assets/firmware-manifest.json > "pages-site/firmware/${tag}/firmware-manifest.json"
+          cp "pages-site/firmware/${tag}/firmware-manifest.json" "pages-site/firmware/${tag}/latest.json"
+
+          jq --arg base_url "${latest_base_url}" '
+            .base_url = $base_url
+            | .devices |= map(
+                .assets |= with_entries(.value.url = ($base_url + "/" + .value.file))
+                | .flash_sequence |= map(.url = ($base_url + "/" + .file))
+              )
+          ' release-assets/firmware-manifest.json > "pages-site/firmware/latest/firmware-manifest.json"
+          cp "pages-site/firmware/latest/firmware-manifest.json" "pages-site/firmware/latest/latest.json"
+
+          cat > pages-site/index.html <<EOF
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <title>EVO MicroPython Firmware</title>
+            </head>
+            <body>
+              <h1>EVO MicroPython Firmware</h1>
+              <p><a href="firmware/latest/latest.json">Latest firmware manifest</a></p>
+            </body>
+          </html>
+          EOF
+          touch pages-site/.nojekyll
+
+          echo "pages_url=${pages_root}/firmware/latest/latest.json" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: pages-site
+
+  deploy-pages:
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy firmware to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
