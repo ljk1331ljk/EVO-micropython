@@ -64,8 +64,8 @@ jobs:
       PORT: ${{ matrix.port }}
       BOARD: ${{ matrix.board }}
       VARIANT: ${{ matrix.variant || '' }}
-      USER_C_MODULES: ${{ matrix.user_c_modules || '' }}
-      FROZEN_MANIFEST: ${{ matrix.frozen_manifest || '' }}
+      RELEASE_USER_C_MODULES: ${{ matrix.user_c_modules || '' }}
+      RELEASE_FROZEN_MANIFEST: ${{ matrix.frozen_manifest || '' }}
       ARTIFACTS: ${{ matrix.artifacts }}
     steps:
       - uses: actions/checkout@v6
@@ -95,11 +95,11 @@ jobs:
           if [ -n "${VARIANT}" ]; then
             make_args+=(BOARD_VARIANT="${VARIANT}")
           fi
-          if [ -n "${USER_C_MODULES}" ]; then
-            make_args+=(USER_C_MODULES="${USER_C_MODULES}")
+          if [ -n "${RELEASE_USER_C_MODULES}" ]; then
+            make_args+=(USER_C_MODULES="${RELEASE_USER_C_MODULES}")
           fi
-          if [ -n "${FROZEN_MANIFEST}" ]; then
-            make_args+=(FROZEN_MANIFEST="${FROZEN_MANIFEST}")
+          if [ -n "${RELEASE_FROZEN_MANIFEST}" ]; then
+            make_args+=(FROZEN_MANIFEST="${RELEASE_FROZEN_MANIFEST}")
           fi
 
           make ${MAKEOPTS} -C "ports/${PORT}" "${make_args[@]}" submodules
