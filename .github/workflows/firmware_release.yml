@@ -90,16 +90,24 @@ jobs:
 
           make ${MAKEOPTS} -C mpy-cross
 
+          repo_root="${GITHUB_WORKSPACE:-$(pwd)}"
+          resolve_repo_path() {
+            case "$1" in
+              /*) printf '%s\n' "$1" ;;
+              *) printf '%s/%s\n' "${repo_root}" "$1" ;;
+            esac
+          }
+
           build_dir="${RUNNER_TEMP}/micropython-${PORT}-${BOARD}"
           make_args=(BOARD="${BOARD}" BUILD="${build_dir}")
           if [ -n "${VARIANT}" ]; then
             make_args+=(BOARD_VARIANT="${VARIANT}")
           fi
           if [ -n "${RELEASE_USER_C_MODULES}" ]; then
-            make_args+=(USER_C_MODULES="${RELEASE_USER_C_MODULES}")
+            make_args+=(USER_C_MODULES="$(resolve_repo_path "${RELEASE_USER_C_MODULES}")")
           fi
           if [ -n "${RELEASE_FROZEN_MANIFEST}" ]; then
-            make_args+=(FROZEN_MANIFEST="${RELEASE_FROZEN_MANIFEST}")
+            make_args+=(FROZEN_MANIFEST="$(resolve_repo_path "${RELEASE_FROZEN_MANIFEST}")")
           fi
 
           if [ ! -f "./esp-idf/export.sh" ]; then
