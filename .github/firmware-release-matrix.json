@@ -8,7 +8,7 @@
     "variant": "SPIRAM_OCT",
     "user_c_modules": "ports/esp32/usermod",
     "frozen_manifest": "ports/esp32/boards/EVOX1E/manifest.py",
-    "artifacts": "bin uf2 bootloader-bin partition-table-bin app-bin elf map"
+    "artifacts": "bootloader-bin partition-table-bin app-bin"
   },
   {
     "port": "esp32",
@@ -19,6 +19,6 @@
     "variant": "SPIRAM_OCT",
     "user_c_modules": "ports/esp32/usermod",
     "frozen_manifest": "ports/esp32/boards/EVOX1P/manifest.py",
-    "artifacts": "bin uf2 bootloader-bin partition-table-bin app-bin elf map"
+    "artifacts": "bootloader-bin partition-table-bin app-bin"
   }
 ]
