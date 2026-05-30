@@ -25,16 +25,12 @@
 #define EVO_DEFAULT_NAME "Evo"
 #endif
 
-#ifndef EVO_DEFAULT_BLE_NAME
-#define EVO_DEFAULT_BLE_NAME EVO_DEFAULT_NAME
-#endif
-
-#ifndef EVO_DEFAULT_WIFI_NAME
-#define EVO_DEFAULT_WIFI_NAME EVO_DEFAULT_NAME
-#endif
-
 #ifndef EVO_CONTROLLER_TYPE
 #define EVO_CONTROLLER_TYPE "EVO"
+#endif
+
+#ifndef EVO_MULTIPLE_PROGRAM_FILESYSTEM
+#define EVO_MULTIPLE_PROGRAM_FILESYSTEM (false)
 #endif
 
 #ifndef EVO_DOWNLOAD_ENABLED
@@ -260,12 +256,11 @@ static mp_obj_t default_download_config(void) {
 }
 
 static mp_obj_t default_config(void) {
-    mp_obj_t d = mp_obj_new_dict(5);
+    mp_obj_t d = mp_obj_new_dict(4);
 
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_name), new_str(EVO_DEFAULT_NAME));
-    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_ble_name), new_str(EVO_DEFAULT_BLE_NAME));
-    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_wifi_name), new_str(EVO_DEFAULT_WIFI_NAME));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_controller_type), new_str(EVO_CONTROLLER_TYPE));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_multiple_program_filesystem), mp_obj_new_bool(EVO_MULTIPLE_PROGRAM_FILESYSTEM));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_download), default_download_config());
 
     return d;
@@ -369,12 +364,6 @@ static mp_obj_t load_config(void) {
         mp_obj_t raw_name = dict_get_default(raw_cfg, MP_QSTR_name, new_str(EVO_DEFAULT_NAME));
         mp_obj_t name = sanitize_name(raw_name, EVO_DEFAULT_NAME);
 
-        mp_obj_t raw_ble = dict_get_default(raw_cfg, MP_QSTR_ble_name, new_str(EVO_DEFAULT_BLE_NAME));
-        mp_obj_t ble_name = sanitize_name(raw_ble, mp_obj_str_get_str(name));
-
-        mp_obj_t raw_wifi = dict_get_default(raw_cfg, MP_QSTR_wifi_name, new_str(EVO_DEFAULT_WIFI_NAME));
-        mp_obj_t wifi_name = sanitize_name(raw_wifi, mp_obj_str_get_str(name));
-
         mp_obj_t raw_ct = dict_get_default(raw_cfg, MP_QSTR_controller_type, new_str(EVO_CONTROLLER_TYPE));
         mp_obj_t controller_type;
         if (mp_obj_is_str(raw_ct)) {
@@ -385,14 +374,17 @@ static mp_obj_t load_config(void) {
             controller_type = new_str(EVO_CONTROLLER_TYPE);
         }
 
+        mp_obj_t raw_multiple_program = dict_get_default(raw_cfg, MP_QSTR_multiple_program_filesystem,
+            mp_obj_new_bool(EVO_MULTIPLE_PROGRAM_FILESYSTEM));
+        mp_obj_t multiple_program = mp_obj_new_bool(obj_to_bool(raw_multiple_program, EVO_MULTIPLE_PROGRAM_FILESYSTEM));
+
         mp_obj_t raw_download = dict_get_default(raw_cfg, MP_QSTR_download, default_download_config());
         mp_obj_t download = sanitise_download_config(raw_download);
 
-        mp_obj_t cfg = mp_obj_new_dict(5);
+        mp_obj_t cfg = mp_obj_new_dict(4);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_name), name);
-        mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_ble_name), ble_name);
-        mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_wifi_name), wifi_name);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_controller_type), controller_type);
+        mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_multiple_program_filesystem), multiple_program);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_download), download);
 
         safe_write_config(cfg);
@@ -477,7 +469,7 @@ static mp_obj_t evo_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args)
         mp_obj_t manager = import_module("EvoDownloadManager");
         mp_obj_t start = mp_load_attr(manager, MP_QSTR_start);
 
-        mp_obj_t ble_name = dict_get_default(cfg, MP_QSTR_ble_name, new_str(EVO_DEFAULT_BLE_NAME));
+        mp_obj_t name = dict_get_default(cfg, MP_QSTR_name, new_str(EVO_DEFAULT_NAME));
 
         int adv_interval_us = obj_to_int(
             vals[ARG_adv_interval_us].u_obj != MP_OBJ_NULL
@@ -518,7 +510,7 @@ static mp_obj_t evo_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args)
         );
 
         mp_obj_t call_args[12] = {
-            MP_OBJ_NEW_QSTR(MP_QSTR_name), ble_name,
+            MP_OBJ_NEW_QSTR(MP_QSTR_name), name,
             MP_OBJ_NEW_QSTR(MP_QSTR_adv_interval_us), mp_obj_new_int(adv_interval_us),
             MP_OBJ_NEW_QSTR(MP_QSTR_debug), mp_obj_new_bool(debug),
             MP_OBJ_NEW_QSTR(MP_QSTR_ack_every), mp_obj_new_int(ack_every),
@@ -671,8 +663,6 @@ static mp_obj_t set_name(size_t n_args, const mp_obj_t *args) {
 
     mp_obj_t cfg = load_config();
     mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_name), name);
-    mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_ble_name), name);
-    mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_wifi_name), name);
 
     if (!safe_write_config(cfg)) {
         mp_printf(&mp_plat_print, "Config write failed\n");
