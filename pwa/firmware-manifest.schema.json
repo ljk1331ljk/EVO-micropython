@@ -85,6 +85,9 @@
           "chip": {
             "type": "string"
           },
+          "capabilities": {
+            "$ref": "#/$defs/device_capabilities"
+          },
           "assets": {
             "type": "object",
             "required": [
@@ -135,6 +138,34 @@
           "minimum": 0
         }
       }
+    },
+    "device_capabilities": {
+      "type": "object",
+      "properties": {
+        "multiple_programs": {
+          "type": "object",
+          "required": [
+            "supported",
+            "root",
+            "main_file"
+          ],
+          "properties": {
+            "supported": {
+              "type": "boolean"
+            },
+            "root": {
+              "type": "string",
+              "pattern": "^/.+"
+            },
+            "main_file": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "flash_entry": {
       "type": "object",

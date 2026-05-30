@@ -49,6 +49,7 @@ jobs:
             type == "array"
             and length > 0
             and all(.[]; has("port") and has("board") and has("artifacts"))
+            and all(.[]; (.multi_programs_supported // false) | type == "boolean")
           ' <<< "${raw}" >/dev/null
 
           echo "matrix=$(jq -c '{include: .}' <<< "${raw}")" >> "${GITHUB_OUTPUT}"
@@ -70,6 +71,9 @@ jobs:
       DEVICE_ID: ${{ matrix.device_id || matrix.board }}
       PRODUCT: ${{ matrix.product || matrix.board }}
       CHIP: ${{ matrix.chip || 'esp32' }}
+      MULTI_PROGRAMS_SUPPORTED: ${{ matrix.multi_programs_supported || false }}
+      MULTI_PROGRAMS_ROOT: ${{ matrix.multi_programs_root || '/programs' }}
+      MULTI_PROGRAMS_MAIN_FILE: ${{ matrix.multi_programs_main_file || 'main.py' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -129,6 +133,10 @@ jobs:
           if [ -n "${VARIANT}" ]; then
             base_name="${base_name}-${VARIANT}"
           fi
+          case "${MULTI_PROGRAMS_SUPPORTED}" in
+            true|false) ;;
+            *) MULTI_PROGRAMS_SUPPORTED="false" ;;
+          esac
 
           mkdir -p dist
           manifest_assets="${RUNNER_TEMP}/${base_name}-assets.jsonl"
@@ -192,6 +200,9 @@ jobs:
             --arg product "${PRODUCT}" \
             --arg port "${PORT}" \
             --arg chip "${CHIP}" \
+            --argjson multi_programs_supported "${MULTI_PROGRAMS_SUPPORTED}" \
+            --arg multi_programs_root "${MULTI_PROGRAMS_ROOT}" \
+            --arg multi_programs_main_file "${MULTI_PROGRAMS_MAIN_FILE}" \
             --slurpfile assets "${manifest_assets}" \
             '{
               id: $id,
@@ -200,6 +211,13 @@ jobs:
               product: $product,
               port: $port,
               chip: $chip,
+              capabilities: {
+                multiple_programs: {
+                  supported: $multi_programs_supported,
+                  root: $multi_programs_root,
+                  main_file: $multi_programs_main_file
+                }
+              },
               assets: ($assets | map({(.type): del(.type)}) | add),
               flash_sequence: [
                 {
@@ -586,7 +604,7 @@ jobs:
                     release_tag,
                     generated_at,
                     manifest_url: $manifest_url,
-                    devices: [.devices[] | {id, board, product, variant}]
+                    devices: [.devices[] | {id, board, product, variant, capabilities}]
                   }' "${manifest}" >> "${stable_entries}" || true
             done < <(find firmware -mindepth 2 -maxdepth 2 -name firmware-manifest.json | sort)
           fi
@@ -601,7 +619,7 @@ jobs:
                   release_tag,
                   generated_at,
                   manifest_url: $manifest_url,
-                  devices: [.devices[] | {id, board, product, variant}]
+                  devices: [.devices[] | {id, board, product, variant, capabilities}]
                 }' firmware/beta/firmware-manifest.json > "${beta_tmp}" || true
             if [ -s "${beta_tmp}" ]; then
               cp "${beta_tmp}" "${beta_entry}"

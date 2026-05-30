@@ -7,6 +7,8 @@
 #include <string.h>
 #include <stdbool.h>
 
+#include "driver/gpio.h"
+
 #include "evo_pwm.h"
 #include "evo_motor.h"
 #include "evo_motorpair.h"
@@ -72,6 +74,7 @@
 #endif
 
 #define MAX_NAME_LEN 31
+#define EVO_GPIO_STATE_COUNT GPIO_NUM_MAX
 
 // ============================================================================
 // Helpers
@@ -194,6 +197,53 @@ static int obj_to_int(mp_obj_t obj, int fallback, int min_value) {
 
     return fallback;
 }
+
+static gpio_num_t evo_get_gpio(mp_obj_t pin_obj) {
+    int pin = mp_obj_get_int(pin_obj);
+    if (pin < 0 || pin >= GPIO_NUM_MAX || pin >= 64) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid GPIO"));
+    }
+    return (gpio_num_t)pin;
+}
+
+static bool evo_gpio_is_pressed(gpio_num_t pin) {
+    gpio_config_t io = {
+        .pin_bit_mask = 1ULL << pin,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    esp_err_t err = gpio_config(&io);
+    if (err != ESP_OK) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("gpio_config failed"));
+    }
+
+    return gpio_get_level(pin) == 0;
+}
+
+static bool evo_bump_last_pressed[EVO_GPIO_STATE_COUNT];
+
+static mp_obj_t evo_is_pressed(mp_obj_t pin_obj) {
+    gpio_num_t pin = evo_get_gpio(pin_obj);
+    return mp_obj_new_bool(evo_gpio_is_pressed(pin));
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(evo_is_pressed_obj, evo_is_pressed);
+
+static mp_obj_t evo_is_released(mp_obj_t pin_obj) {
+    gpio_num_t pin = evo_get_gpio(pin_obj);
+    return mp_obj_new_bool(!evo_gpio_is_pressed(pin));
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(evo_is_released_obj, evo_is_released);
+
+static mp_obj_t evo_is_bumped(mp_obj_t pin_obj) {
+    gpio_num_t pin = evo_get_gpio(pin_obj);
+    bool pressed = evo_gpio_is_pressed(pin);
+    bool bumped = pressed && !evo_bump_last_pressed[pin];
+    evo_bump_last_pressed[pin] = pressed;
+    return mp_obj_new_bool(bumped);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(evo_is_bumped_obj, evo_is_bumped);
 
 static mp_obj_t default_download_config(void) {
     mp_obj_t d = mp_obj_new_dict(7);
@@ -571,18 +621,6 @@ static mp_obj_t get_name(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(get_name_obj, get_name);
 
-static mp_obj_t get_ble_name(void) {
-    mp_obj_t cfg = load_config();
-    return dict_get_default(cfg, MP_QSTR_ble_name, new_str(EVO_DEFAULT_BLE_NAME));
-}
-static MP_DEFINE_CONST_FUN_OBJ_0(get_ble_name_obj, get_ble_name);
-
-static mp_obj_t get_wifi_name(void) {
-    mp_obj_t cfg = load_config();
-    return dict_get_default(cfg, MP_QSTR_wifi_name, new_str(EVO_DEFAULT_WIFI_NAME));
-}
-static MP_DEFINE_CONST_FUN_OBJ_0(get_wifi_name_obj, get_wifi_name);
-
 static mp_obj_t get_controller_type(void) {
     mp_obj_t cfg = load_config();
     return dict_get_default(cfg, MP_QSTR_controller_type, new_str(EVO_CONTROLLER_TYPE));
@@ -645,60 +683,6 @@ static mp_obj_t set_name(size_t n_args, const mp_obj_t *args) {
     return mp_const_true;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_name_obj, 1, 2, set_name);
-
-static mp_obj_t set_ble_name(size_t n_args, const mp_obj_t *args) {
-    mp_obj_t name = args[0];
-    bool reset = true;
-    if (n_args > 1) {
-        reset = mp_obj_is_true(args[1]);
-    }
-
-    if (!is_valid_name(name)) {
-        mp_printf(&mp_plat_print,
-            "Invalid BLE name. Use only A-Z, a-z, 0-9, _ or -, max %d chars.\n",
-            MAX_NAME_LEN);
-        return mp_const_false;
-    }
-
-    mp_obj_t cfg = load_config();
-    mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_ble_name), name);
-
-    if (!safe_write_config(cfg)) {
-        mp_printf(&mp_plat_print, "Config write failed\n");
-        return mp_const_false;
-    }
-
-    maybe_reset(reset);
-    return mp_const_true;
-}
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_ble_name_obj, 1, 2, set_ble_name);
-
-static mp_obj_t set_wifi_name(size_t n_args, const mp_obj_t *args) {
-    mp_obj_t name = args[0];
-    bool reset = true;
-    if (n_args > 1) {
-        reset = mp_obj_is_true(args[1]);
-    }
-
-    if (!is_valid_name(name)) {
-        mp_printf(&mp_plat_print,
-            "Invalid WiFi name. Use only A-Z, a-z, 0-9, _ or -, max %d chars.\n",
-            MAX_NAME_LEN);
-        return mp_const_false;
-    }
-
-    mp_obj_t cfg = load_config();
-    mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_wifi_name), name);
-
-    if (!safe_write_config(cfg)) {
-        mp_printf(&mp_plat_print, "Config write failed\n");
-        return mp_const_false;
-    }
-
-    maybe_reset(reset);
-    return mp_const_true;
-}
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_wifi_name_obj, 1, 2, set_wifi_name);
 
 static mp_obj_t set_controller_type(size_t n_args, const mp_obj_t *args) {
     mp_obj_t ct = args[0];
@@ -775,18 +759,18 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_log), MP_ROM_PTR(&evo_log_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_get_name), MP_ROM_PTR(&get_name_obj) },
-    { MP_ROM_QSTR(MP_QSTR_get_ble_name), MP_ROM_PTR(&get_ble_name_obj) },
-    { MP_ROM_QSTR(MP_QSTR_get_wifi_name), MP_ROM_PTR(&get_wifi_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_controller_type), MP_ROM_PTR(&get_controller_type_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_download_config), MP_ROM_PTR(&get_download_config_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_config), MP_ROM_PTR(&get_config_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_set_name), MP_ROM_PTR(&set_name_obj) },
-    { MP_ROM_QSTR(MP_QSTR_set_ble_name), MP_ROM_PTR(&set_ble_name_obj) },
-    { MP_ROM_QSTR(MP_QSTR_set_wifi_name), MP_ROM_PTR(&set_wifi_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_controller_type), MP_ROM_PTR(&set_controller_type_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_download_start_on_boot), MP_ROM_PTR(&set_download_start_on_boot_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_download_enabled), MP_ROM_PTR(&set_download_enabled_obj) },
+
+    { MP_ROM_QSTR(MP_QSTR_is_pressed), MP_ROM_PTR(&evo_is_pressed_obj) },
+    { MP_ROM_QSTR(MP_QSTR_is_released), MP_ROM_PTR(&evo_is_released_obj) },
+    { MP_ROM_QSTR(MP_QSTR_is_bumped), MP_ROM_PTR(&evo_is_bumped_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_EVOPWMDriver), MP_ROM_PTR(&evo_get_pwm_singleton_obj) },
 

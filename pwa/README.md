@@ -46,5 +46,21 @@ needed by ESP32 flashing tools:
 Each device asset also includes a direct `url` field that points at the matching
 GitHub Pages firmware file.
 
+Each device entry can include `capabilities.multiple_programs`. The release
+workflow writes this block for EVO targets:
+
+- `supported`: `true` when the firmware/PWA pairing can store multiple user
+  programs.
+- `root`: folder where uploaded programs should be created, currently
+  `/programs`.
+- `main_file`: entry file the launcher should run inside the selected program
+  folder, currently `main.py`.
+
+When `capabilities.multiple_programs.supported` is `true`, the PWA may enable a
+multi-program upload mode. In that mode, each uploaded program should be written
+to its own folder under `root`, and the selected program should be launched from
+that folder's `main_file`. If the field is missing or `supported` is `false`,
+the PWA should keep the existing single-program upload behavior.
+
 The manifest also includes SHA-256 hashes and file sizes for validation before
 flashing.

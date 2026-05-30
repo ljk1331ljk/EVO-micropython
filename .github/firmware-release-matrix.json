@@ -5,7 +5,10 @@
     "variant": "SPIRAM_OCT",
     "user_c_modules": "ports/esp32/usermod",
     "frozen_manifest": "ports/esp32/boards/EVOX1E/manifest.py",
-    "artifacts": "bootloader-bin partition-table-bin app-bin"
+    "artifacts": "bootloader-bin partition-table-bin app-bin",
+    "multi_programs_supported": true,
+    "multi_programs_root": "/programs",
+    "multi_programs_main_file": "main.py"
   },
   {
     "port": "esp32",
@@ -13,6 +16,9 @@
     "variant": "SPIRAM_OCT",
     "user_c_modules": "ports/esp32/usermod",
     "frozen_manifest": "ports/esp32/boards/EVOX1P/manifest.py",
-    "artifacts": "bootloader-bin partition-table-bin app-bin"
+    "artifacts": "bootloader-bin partition-table-bin app-bin",
+    "multi_programs_supported": true,
+    "multi_programs_root": "/programs",
+    "multi_programs_main_file": "main.py"
   }
 ]
