@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "name": "EVO MicroPython Firmware",
-  "version": "v1.1.0-beta.1",
+  "version": "v1.1.0-beta.2",
   "channel": "beta",
   "repository": "ljk1331ljk/EVO-micropython",
-  "commit": "fd5edda54d188394413de341a7c1081cd65e33c8",
-  "release_tag": "v1.1.0-beta.1",
+  "commit": "222df7b7886ed1d518b32071f72b0a78a8abeaff",
+  "release_tag": "v1.1.0-beta.2",
   "prerelease": true,
-  "generated_at": "2026-05-29T04:42:04Z",
+  "generated_at": "2026-05-30T08:53:05Z",
   "devices": [
     {
       "id": "EVOX1E",
@@ -16,26 +16,33 @@
       "product": "EVOX1E",
       "port": "esp32",
       "chip": "esp32",
+      "capabilities": {
+        "multiple_programs": {
+          "supported": true,
+          "root": "/programs",
+          "main_file": "main.py"
+        }
+      },
       "assets": {
         "bootloader": {
-          "file": "EVOX1E-SPIRAM_OCT-20260529-v1.1.0-beta.1.bootloader.bin",
+          "file": "EVOX1E-SPIRAM_OCT-20260530-v1.1.0-beta.2.bootloader.bin",
           "offset": "0x0",
-          "sha256": "96f0c99bde563d9d6145ec942b6d495768e333a91e9fff13f0c0944ff8b70039",
+          "sha256": "d5d8157add518422ac32faa9c776ce3dcc6986de13c2fa3b8c2f7a829d9e1cc2",
           "size": 19232,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1e/bootloader.bin"
         },
         "partition_table": {
-          "file": "EVOX1E-SPIRAM_OCT-20260529-v1.1.0-beta.1.partition-table.bin",
+          "file": "EVOX1E-SPIRAM_OCT-20260530-v1.1.0-beta.2.partition-table.bin",
           "offset": "0x8000",
           "sha256": "520c18ca0bda73aed288d427d260ab051d71219f605707350e6c42401f4836fc",
           "size": 3072,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1e/partition-table.bin"
         },
         "application": {
-          "file": "EVOX1E-SPIRAM_OCT-20260529-v1.1.0-beta.1.micropython.bin",
+          "file": "EVOX1E-SPIRAM_OCT-20260530-v1.1.0-beta.2.micropython.bin",
           "offset": "0x10000",
-          "sha256": "d6003448ad9646c1b7c0ac504c9d017d9e5a693203f69fab6e48f2e5cbb3695e",
-          "size": 1876896,
+          "sha256": "7af22875dad8de13bc8a007490ac1501b8a7a370a5f05925c60afcae7c576c7d",
+          "size": 1876720,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1e/micropython.bin"
         }
       },
@@ -64,26 +71,33 @@
       "product": "EVOX1P",
       "port": "esp32",
       "chip": "esp32",
+      "capabilities": {
+        "multiple_programs": {
+          "supported": true,
+          "root": "/programs",
+          "main_file": "main.py"
+        }
+      },
       "assets": {
         "bootloader": {
-          "file": "EVOX1P-SPIRAM_OCT-20260529-v1.1.0-beta.1.bootloader.bin",
+          "file": "EVOX1P-SPIRAM_OCT-20260530-v1.1.0-beta.2.bootloader.bin",
           "offset": "0x0",
-          "sha256": "539d10eeb374ae7f3675ac2d47aa6e8212a42547b7a79f44464cec94da75c01e",
+          "sha256": "8b0f63298c8f7b5136d1b2d52a9d0b5750011094f70ee05690ee5264d6cf6b31",
           "size": 19232,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1p/bootloader.bin"
         },
         "partition_table": {
-          "file": "EVOX1P-SPIRAM_OCT-20260529-v1.1.0-beta.1.partition-table.bin",
+          "file": "EVOX1P-SPIRAM_OCT-20260530-v1.1.0-beta.2.partition-table.bin",
           "offset": "0x8000",
           "sha256": "520c18ca0bda73aed288d427d260ab051d71219f605707350e6c42401f4836fc",
           "size": 3072,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1p/partition-table.bin"
         },
         "application": {
-          "file": "EVOX1P-SPIRAM_OCT-20260529-v1.1.0-beta.1.micropython.bin",
+          "file": "EVOX1P-SPIRAM_OCT-20260530-v1.1.0-beta.2.micropython.bin",
           "offset": "0x10000",
-          "sha256": "747e4e3097fc0f860c91e138c760f883a439b28ac0ee25ca08d1f154ceea02aa",
-          "size": 1876704,
+          "sha256": "aa8c3d778a85637ae28ffb6d3abb8754887de7b98ce541515bde19e9b73240d7",
+          "size": 1876528,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1p/micropython.bin"
         }
       },
