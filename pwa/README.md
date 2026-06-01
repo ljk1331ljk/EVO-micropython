@@ -62,5 +62,17 @@ to its own folder under `root`, and the selected program should be launched from
 that folder's `main_file`. If the field is missing or `supported` is `false`,
 the PWA should keep the existing single-program upload behavior.
 
+Connected devices also expose this setting at runtime. Over USB, read
+`evo.get_multiple_program_filesystem()` or
+`evo.get_config()["multiple_program_filesystem"]`. Over BLE, use `HELLO`,
+`INFO`, or `EvoDownloadManager.status()` and read
+`capabilities.multiple_programs.supported`. When enabled, BLE uploads may target
+`/programs/<program-name>/main.py` instead of replacing `/main.py`; `/main.py`
+remains the launcher selected by the PWA.
+
+The BLE `LIST` command accepts a `path` and returns that directory's immediate
+children. Use `/` for the root or a nested path such as `/programs/LineFollower`
+to browse program folders.
+
 The manifest also includes SHA-256 hashes and file sizes for validation before
 flashing.

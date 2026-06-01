@@ -34,9 +34,12 @@ DATA_PAYLOAD_SIZE = max(1, MTU_SIZE - DATA_HEADER_SIZE)
 
 # Single shared Evo config file.
 # This file is created/owned by mod_evo.c so each firmware variant can provide
-# its own default name, device_type, and BLE download defaults.
+# its own default name, controller_type, and BLE download defaults.
 CONFIG_PATH = "/evo_config.json"
-BLE_DOWNLOAD_SECTION = "ble_download"
+DOWNLOAD_SECTION = "download"
+LEGACY_BLE_DOWNLOAD_SECTION = "ble_download"
+PROGRAMS_ROOT = "/programs"
+PROGRAM_MAIN_FILE = "main.py"
 
 _DEFAULT_BLE_DOWNLOAD_CFG = {
     "enabled": True,
@@ -50,9 +53,9 @@ _DEFAULT_BLE_DOWNLOAD_CFG = {
 
 _DEFAULT_ROOT_CFG = {
     "name": "Evo",
-    "device_type": "UNKNOWN",
+    "controller_type": "UNKNOWN",
     "multiple_program_filesystem": False,
-    BLE_DOWNLOAD_SECTION: _DEFAULT_BLE_DOWNLOAD_CFG,
+    DOWNLOAD_SECTION: _DEFAULT_BLE_DOWNLOAD_CFG,
 }
 
 # /boot.py is intentionally NOT protected.
@@ -99,15 +102,17 @@ def _root_cfg_normalise(root):
 
     # Read-only/fixed identity created by mod_evo.c. EvoDownloadManager never
     # writes this unless it is creating an emergency fallback config.
-    if "device_type" in root:
-        cfg["device_type"] = str(root.get("device_type", "UNKNOWN"))
+    if "controller_type" in root:
+        cfg["controller_type"] = str(root.get("controller_type", "UNKNOWN"))
+    elif "device_type" in root:
+        cfg["controller_type"] = str(root.get("device_type", "UNKNOWN"))
 
     if "multiple_program_filesystem" in root:
         cfg["multiple_program_filesystem"] = bool(
             root.get("multiple_program_filesystem", False)
         )
 
-    section = root.get(BLE_DOWNLOAD_SECTION, {})
+    section = root.get(DOWNLOAD_SECTION, root.get(LEGACY_BLE_DOWNLOAD_SECTION, {}))
     if not isinstance(section, dict):
         section = {}
 
@@ -127,7 +132,7 @@ def _root_cfg_normalise(root):
     except Exception:
         ble = _copy_dict(_DEFAULT_BLE_DOWNLOAD_CFG)
 
-    cfg[BLE_DOWNLOAD_SECTION] = ble
+    cfg[DOWNLOAD_SECTION] = ble
     return cfg
 
 
@@ -178,7 +183,7 @@ def _cfg_load():
         return _cfg_cache
 
     root = _root_cfg_load()
-    ble = root.get(BLE_DOWNLOAD_SECTION, {})
+    ble = root.get(DOWNLOAD_SECTION, root.get(LEGACY_BLE_DOWNLOAD_SECTION, {}))
 
     cfg = _copy_dict(_DEFAULT_BLE_DOWNLOAD_CFG)
     for k in ble:
@@ -187,7 +192,10 @@ def _cfg_load():
 
     # Expose shared top-level values as read-only context to this module.
     cfg["name"] = str(root.get("name", "Evo"))[:24]
-    cfg["device_type"] = str(root.get("device_type", "UNKNOWN"))
+    cfg["controller_type"] = str(root.get(
+        "controller_type",
+        root.get("device_type", "UNKNOWN"),
+    ))
     cfg["multiple_program_filesystem"] = bool(
         root.get("multiple_program_filesystem", False)
     )
@@ -207,7 +215,7 @@ def _cfg_save(cfg=None):
     # Only write BLE download settings here. Top-level name and other shared
     # settings should normally be managed by mod_evo.c, but set_name_persistent()
     # below is kept as a convenience for this module's CLI.
-    ble = root.get(BLE_DOWNLOAD_SECTION, {})
+    ble = root.get(DOWNLOAD_SECTION, root.get(LEGACY_BLE_DOWNLOAD_SECTION, {}))
     if not isinstance(ble, dict):
         ble = {}
 
@@ -215,7 +223,7 @@ def _cfg_save(cfg=None):
         if k in cfg:
             ble[k] = cfg[k]
 
-    root[BLE_DOWNLOAD_SECTION] = ble
+    root[DOWNLOAD_SECTION] = ble
 
     ok = _root_cfg_save(root)
     if ok:
@@ -369,6 +377,67 @@ def _is_py_file(path):
     return path.endswith(".py")
 
 
+def _is_safe_path_part(part):
+    if not part:
+        return False
+
+    for ch in str(part):
+        if not (
+            ("a" <= ch <= "z")
+            or ("A" <= ch <= "Z")
+            or ("0" <= ch <= "9")
+            or ch in ("_", "-", ".")
+        ):
+            return False
+
+    return True
+
+
+def _programs_enabled():
+    try:
+        return bool(config_get().get("multiple_program_filesystem", False))
+    except Exception:
+        return False
+
+
+def _is_program_file(path):
+    path = _normalise_path(path)
+
+    if not path or not _programs_enabled():
+        return False
+
+    prefix = PROGRAMS_ROOT + "/"
+    if not path.startswith(prefix):
+        return False
+
+    rel = path[len(prefix):]
+    parts = rel.split("/")
+
+    if len(parts) < 2:
+        return False
+
+    for part in parts:
+        if not _is_safe_path_part(part):
+            return False
+
+    return _is_py_file(path)
+
+
+def _upload_allowed(path):
+    path = _normalise_path(path)
+
+    if not path:
+        return False
+
+    if _is_protected_path(path):
+        return False
+
+    if _is_root_file(path) and _is_py_file(path):
+        return True
+
+    return _is_program_file(path)
+
+
 def _is_protected_path(path):
     path = _normalise_path(path)
 
@@ -390,14 +459,23 @@ def _validate_upload_path(path):
     if not path:
         return False, "BAD_PATH"
 
-    if not _is_root_file(path):
-        return False, "ROOT_ONLY"
-
     if not _is_py_file(path):
         return False, "PY_ONLY"
 
     if _is_protected_path(path):
         return False, "PROTECTED"
+
+    if _is_root_file(path):
+        return True, path
+
+    if _is_program_file(path):
+        return True, path
+
+    if _programs_enabled():
+        return False, "PROGRAM_PATH"
+
+    if not _is_root_file(path):
+        return False, "ROOT_ONLY"
 
     return True, path
 
@@ -423,22 +501,41 @@ def _is_dir_from_stat(st):
         return False
 
 
-def _list_root():
+def _ensure_parent_dirs(path):
+    path = _normalise_path(path)
+
+    if not path:
+        return
+
+    parts = path.split("/")[1:-1]
+    cur = ""
+
+    for part in parts:
+        cur += "/" + part
+
+        try:
+            os.mkdir(cur)
+        except Exception:
+            pass
+
+
+def _list_dir(path="/"):
+    path = _normalise_path(path) or "/"
     items = []
 
     try:
-        names = os.listdir("/")
+        names = os.listdir(path)
     except Exception as e:
         return [{
-            "name": "/",
-            "path": "/",
+            "name": path,
+            "path": path,
             "type": "error",
             "error": str(e),
         }]
 
     for name in names:
         try:
-            full = "/" + name
+            full = (path.rstrip("/") + "/" + name) if path != "/" else "/" + name
 
             if name.endswith(".download.tmp"):
                 continue
@@ -470,11 +567,7 @@ def _list_root():
                     "path": full,
                     "type": "file",
                     "size": size,
-                    "upload_allowed": (
-                        _is_root_file(full)
-                        and _is_py_file(full)
-                        and not protected
-                    ),
+                    "upload_allowed": _upload_allowed(full),
                     "protected": protected,
                 })
 
@@ -486,6 +579,21 @@ def _list_root():
             })
 
     return items
+
+
+def _list_root():
+    return _list_dir("/")
+
+
+def _program_capabilities():
+    supported = _programs_enabled()
+
+    return {
+        "supported": supported,
+        "root": PROGRAMS_ROOT,
+        "main_file": PROGRAM_MAIN_FILE,
+        "launcher": "/main.py",
+    }
 
 
 def _file_crc32(path):
@@ -739,6 +847,9 @@ class EvoDownloadManager:
             "ROOT_ONLY",
             "PY_ONLY",
             "MAIN_PY",
+            "MULTIPLE_PROGRAM_FILESYSTEM",
+            "PROGRAM_FOLDERS",
+            "LIST_ALL",
             "TEMP_RENAME",
             "PATH_PROTECT",
             "QUEUE_LIMIT",
@@ -1128,13 +1239,24 @@ class EvoDownloadManager:
         op = str(cmd.get("op", "")).strip().upper()
 
         if op == "HELLO":
+            multi = _program_capabilities()
             self._notify_json({
                 "op": "HELLO_ACK",
                 "ver": 5,
                 "device": self._name,
                 "service": "EvoDownloadManager",
-                "mode": "root_main_py",
+                "mode": (
+                    "multiple_program_filesystem"
+                    if multi["supported"]
+                    else "root_main_py"
+                ),
                 "main_file": "/main.py",
+                "multiple_program_filesystem": multi["supported"],
+                "program_root": multi["root"],
+                "program_main_file": multi["main_file"],
+                "capabilities": {
+                    "multiple_programs": multi,
+                },
                 "mtu_size": MTU_SIZE,
                 "data_payload_size": DATA_PAYLOAD_SIZE,
                 "ack_every": self._ack_every,
@@ -1142,13 +1264,25 @@ class EvoDownloadManager:
             return
 
         if op == "INFO":
+            multi = _program_capabilities()
             self._notify_json({
                 "op": "INFO_RESULT",
-                "mode": "root_main_py",
+                "mode": (
+                    "multiple_program_filesystem"
+                    if multi["supported"]
+                    else "root_main_py"
+                ),
                 "main_file": "/main.py",
+                "program_root": multi["root"],
+                "program_main_file": multi["main_file"],
+                "multiple_program_filesystem": multi["supported"],
+                "capabilities": {
+                    "multiple_programs": multi,
+                },
                 "mtu_size": MTU_SIZE,
                 "data_payload_size": DATA_PAYLOAD_SIZE,
-                "root_only": True,
+                "root_only": not multi["supported"],
+                "list_root_only": False,
                 "py_only": True,
                 "run_supported": False,
                 "reset_after_upload": True,
@@ -1159,29 +1293,28 @@ class EvoDownloadManager:
             return
 
         if op == "LIST":
-            path = _normalise_path(cmd.get("path", "/")) or "/"
+            path = _normalise_path(cmd.get("path", "/"))
 
-            if path != "/":
-                self._error("LIST_ROOT_ONLY", extra={
-                    "path": path,
-                    "hint": "Only root directory listing is supported",
+            if not path:
+                self._error("LIST_BAD_PATH", extra={
+                    "path": cmd.get("path", "/"),
                 })
                 return
 
             self._notify_json({
                 "op": "LIST_BEGIN",
-                "path": "/",
+                "path": path,
             })
 
             try:
                 self._notify_json({
                     "op": "LIST_RESULT",
-                    "path": "/",
-                    "items": _list_root(),
+                    "path": path,
+                    "items": _list_dir(path),
                 })
             except Exception as e:
                 self._error("LIST_FAIL", str(e), {
-                    "path": "/",
+                    "path": path,
                 })
 
             return
@@ -1193,7 +1326,7 @@ class EvoDownloadManager:
                 self._error("CRC32_ARGS")
                 return
 
-            if not _is_root_file(path):
+            if not (_is_root_file(path) or _is_program_file(path)):
                 self._error("CRC32_ROOT_ONLY", extra={
                     "path": path,
                 })
@@ -1271,7 +1404,9 @@ class EvoDownloadManager:
             if not ok:
                 self._error("PUT_" + result, extra={
                     "path": path,
-                    "hint": "Only root-level .py files are allowed",
+                    "hint": (
+                        "Use root .py files, or /programs/<name>/*.py when multiple_program_filesystem is true"
+                    ),
                 })
                 return
 
@@ -1314,6 +1449,7 @@ class EvoDownloadManager:
 
                         mode = "ab" if offset > 0 else "wb"
 
+                _ensure_parent_dirs(tmp_path)
                 self._put_fp = open(tmp_path, mode)
                 self._put_active = True
                 self._put_path = path
@@ -1332,8 +1468,9 @@ class EvoDownloadManager:
                     "mtu_size": MTU_SIZE,
                     "crc32_chunks": self._put_crc32_chunks,
                     "safe_write": True,
-                    "root_only": True,
+                    "root_only": not _programs_enabled(),
                     "py_only": True,
+                    "multiple_program_filesystem": _programs_enabled(),
                 })
 
             except Exception as e:
@@ -1863,13 +2000,17 @@ def console_print(*args, sep=" ", end="\n", stream="stdout"):
 
 def status():
     cfg = _cfg_load()
+    multi = _program_capabilities()
 
     return {
         "enabled": cfg.get("enabled", True),
         "start_on_boot": cfg.get("start_on_boot", True),
         "name": cfg.get("name"),
-        "device_type": cfg.get("device_type"),
-        "multiple_program_filesystem": cfg.get("multiple_program_filesystem", False),
+        "controller_type": cfg.get("controller_type"),
+        "multiple_program_filesystem": multi["supported"],
+        "capabilities": {
+            "multiple_programs": multi,
+        },
         "adv_interval_us": cfg.get("adv_interval_us"),
         "mtu_size": MTU_SIZE,
         "data_payload_size": DATA_PAYLOAD_SIZE,
@@ -1888,7 +2029,11 @@ def status():
             and _service_instance._conn_handle is not None
         ),
         "service": "EvoDownloadManager",
-        "mode": "root_main_py",
+        "mode": (
+            "multiple_program_filesystem"
+            if multi["supported"]
+            else "root_main_py"
+        ),
         "console_mode": "always_on_explicit_write",
         "commands": [
             "HELLO",
@@ -1983,5 +2128,3 @@ def cli(cmd=None):
         "cmd": c,
         "hint": "status|on|off|boot on/off|name <x>|ack <n>|sensor on/off|start|stop",
     }
-
-

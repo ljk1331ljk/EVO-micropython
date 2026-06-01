@@ -3,6 +3,7 @@
 #include "py/objstr.h"
 #include "py/nlr.h"
 #include "py/mphal.h"
+#include "genhdr/mpversion.h"
 
 #include <string.h>
 #include <stdbool.h>
@@ -59,6 +60,12 @@
 
 #ifndef EVO_DOWNLOAD_SENSOR_TICK_MS
 #define EVO_DOWNLOAD_SENSOR_TICK_MS (50)
+#endif
+
+#ifdef MICROPY_BUILD_TYPE
+#define EVO_MICROPY_BUILD_TYPE_PAREN " (" MICROPY_BUILD_TYPE ")"
+#else
+#define EVO_MICROPY_BUILD_TYPE_PAREN
 #endif
 
 #ifndef EVO_DEFAULT_BLE_DOWNLOAD_ENABLED
@@ -625,6 +632,21 @@ static mp_obj_t get_download_config_public(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(get_download_config_obj, get_download_config_public);
 
+static mp_obj_t get_multiple_program_filesystem(void) {
+    mp_obj_t cfg = load_config();
+    mp_obj_t value = dict_get_default(cfg, MP_QSTR_multiple_program_filesystem,
+        mp_obj_new_bool(EVO_MULTIPLE_PROGRAM_FILESYSTEM));
+    return mp_obj_new_bool(obj_to_bool(value, EVO_MULTIPLE_PROGRAM_FILESYSTEM));
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(get_multiple_program_filesystem_obj, get_multiple_program_filesystem);
+
+static const MP_DEFINE_STR_OBJ(evo_firmware_version_obj, MICROPY_GIT_TAG " on " MICROPY_BUILD_DATE EVO_MICROPY_BUILD_TYPE_PAREN);
+
+static mp_obj_t get_firmware_version(void) {
+    return MP_OBJ_FROM_PTR(&evo_firmware_version_obj);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(get_firmware_version_obj, get_firmware_version);
+
 static mp_obj_t get_config(void) {
     return load_config();
 }
@@ -706,6 +728,26 @@ static mp_obj_t set_controller_type(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_controller_type_obj, 1, 2, set_controller_type);
 
+static mp_obj_t set_multiple_program_filesystem(size_t n_args, const mp_obj_t *args) {
+    bool on = mp_obj_is_true(args[0]);
+    bool reset = false;
+    if (n_args > 1) {
+        reset = mp_obj_is_true(args[1]);
+    }
+
+    mp_obj_t cfg = load_config();
+    mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_multiple_program_filesystem), mp_obj_new_bool(on));
+
+    if (!safe_write_config(cfg)) {
+        mp_printf(&mp_plat_print, "Config write failed\n");
+        return mp_const_false;
+    }
+
+    maybe_reset(reset);
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_multiple_program_filesystem_obj, 1, 2, set_multiple_program_filesystem);
+
 static mp_obj_t set_download_start_on_boot(size_t n_args, const mp_obj_t *args) {
     bool on = mp_obj_is_true(args[0]);
     bool reset = false;
@@ -751,10 +793,13 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_get_name), MP_ROM_PTR(&get_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_controller_type), MP_ROM_PTR(&get_controller_type_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_download_config), MP_ROM_PTR(&get_download_config_obj) },
+    { MP_ROM_QSTR(MP_QSTR_get_multiple_program_filesystem), MP_ROM_PTR(&get_multiple_program_filesystem_obj) },
+    { MP_ROM_QSTR(MP_QSTR_get_firmware_version), MP_ROM_PTR(&get_firmware_version_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_config), MP_ROM_PTR(&get_config_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_set_name), MP_ROM_PTR(&set_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_controller_type), MP_ROM_PTR(&set_controller_type_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_multiple_program_filesystem), MP_ROM_PTR(&set_multiple_program_filesystem_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_download_start_on_boot), MP_ROM_PTR(&set_download_start_on_boot_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_download_enabled), MP_ROM_PTR(&set_download_enabled_obj) },
 
