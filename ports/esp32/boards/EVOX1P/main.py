@@ -33,6 +33,8 @@ select_btn = Pin(BUTTON_C_PIN, Pin.IN, Pin.PULL_UP)
 # =========================
 
 PROJECT_ROOT = "/programs"
+DOWNLOAD_ORDER_FILE = ".evo_download_order"
+BLE_SETTING_ITEM = "__ble_setting__"
 
 
 # =========================
@@ -99,6 +101,55 @@ def join_path(folder, filename):
     return folder + "/" + filename
 
 
+def read_int_file(path, default=0):
+    try:
+        with open(path) as f:
+            return int(f.read().strip() or default)
+    except:
+        return default
+
+
+def project_download_order(project_path):
+    order_path = join_path(project_path, DOWNLOAD_ORDER_FILE)
+    order = read_int_file(order_path, 0)
+
+    if order:
+        return order
+
+    try:
+        st = os.stat(join_path(project_path, "main.py"))
+        if len(st) > 8:
+            return st[8]
+    except:
+        pass
+
+    return 0
+
+
+def get_bluetooth_enabled():
+    try:
+        return bool(evo.get_bluetooth_enabled())
+    except:
+        try:
+            return bool(evo.get_config().get("bluetooth_enabled", True))
+        except:
+            return True
+
+
+def set_bluetooth_enabled(on):
+    try:
+        return bool(evo.set_bluetooth_enabled(on, False))
+    except:
+        return False
+
+
+def bluetooth_label():
+    if get_bluetooth_enabled():
+        return "Bluetooth: On"
+
+    return "Bluetooth: Off"
+
+
 def get_project_folders():
     projects = []
     ensure_project_root()
@@ -115,20 +166,25 @@ def get_project_folders():
             main_path = join_path(path, "main.py")
 
             if file_exists(main_path):
-                projects.append(name)
+                projects.append((project_download_order(path), name))
 
-    projects.sort()
-    return projects
+    projects.sort(key=lambda item: (-item[0], item[1]))
+    return [name for _, name in projects]
 
 
-def display_menu(projects, selected):
+def get_menu_items():
+    return get_project_folders() + [BLE_SETTING_ITEM]
+
+
+def menu_item_text(item):
+    if item == BLE_SETTING_ITEM:
+        return bluetooth_label()
+
+    return item
+
+
+def display_menu(items, selected):
     show_line(get_header(), 0, True, False)
-
-    if not projects:
-        show_line("No Projects", 1, False, False)
-        show_line("Add folder", 2, False, False)
-        show_line("with main.py", 3, False, True)
-        return
 
     # Line 0 is header.
     # Lines 1 to 5 are project list.
@@ -141,9 +197,9 @@ def display_menu(projects, selected):
     for row in range(visible_rows):
         idx = start + row
 
-        if idx < len(projects):
+        if idx < len(items):
             prefix = "> " if idx == selected else "  "
-            text = prefix + projects[idx]
+            text = prefix + menu_item_text(items[idx])
         else:
             text = ""
 
@@ -200,42 +256,49 @@ def run_project(project_name):
 # =========================
 
 def main():
-    projects = get_project_folders()
-
-    if not projects:
-        display_menu(projects, 0)
-        while True:
-            time.sleep(1)
+    items = get_menu_items()
 
     selected = 0
-    display_menu(projects, selected)
+    display_menu(items, selected)
 
     while True:
         if button_pressed(left_btn):
             selected -= 1
 
             if selected < 0:
-                selected = len(projects) - 1
+                selected = len(items) - 1
 
-            display_menu(projects, selected)
+            display_menu(items, selected)
             wait_button_release(left_btn)
 
         if button_pressed(right_btn):
             selected += 1
 
-            if selected >= len(projects):
+            if selected >= len(items):
                 selected = 0
 
-            display_menu(projects, selected)
+            display_menu(items, selected)
             wait_button_release(right_btn)
 
         if button_pressed(select_btn):
             wait_button_release(select_btn)
-            run_project(projects[selected])
-            display_end_program(projects[selected])
-            while not button_pressed(select_btn):
-                pass
-            display_menu(projects, selected)
+            item = items[selected]
+
+            if item == BLE_SETTING_ITEM:
+                set_bluetooth_enabled(not get_bluetooth_enabled())
+                items = get_menu_items()
+                if selected >= len(items):
+                    selected = len(items) - 1
+                display_menu(items, selected)
+            else:
+                run_project(item)
+                display_end_program(item)
+                while not button_pressed(select_btn):
+                    pass
+                items = get_menu_items()
+                if selected >= len(items):
+                    selected = len(items) - 1
+                display_menu(items, selected)
 
         time.sleep(0.05)
 

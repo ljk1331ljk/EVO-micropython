@@ -40,9 +40,10 @@ DOWNLOAD_SECTION = "download"
 LEGACY_BLE_DOWNLOAD_SECTION = "ble_download"
 PROGRAMS_ROOT = "/programs"
 PROGRAM_MAIN_FILE = "main.py"
+PROGRAM_DOWNLOAD_COUNTER_FILE = ".evo_download_counter"
+PROGRAM_DOWNLOAD_ORDER_FILE = ".evo_download_order"
 
 _DEFAULT_BLE_DOWNLOAD_CFG = {
-    "enabled": True,
     "start_on_boot": True,
     "adv_interval_us": 200000,
     "debug": False,
@@ -55,6 +56,7 @@ _DEFAULT_ROOT_CFG = {
     "name": "Evo",
     "controller_type": "UNKNOWN",
     "multiple_program_filesystem": False,
+    "bluetooth_enabled": True,
     DOWNLOAD_SECTION: _DEFAULT_BLE_DOWNLOAD_CFG,
 }
 
@@ -112,6 +114,9 @@ def _root_cfg_normalise(root):
             root.get("multiple_program_filesystem", False)
         )
 
+    if "bluetooth_enabled" in root:
+        cfg["bluetooth_enabled"] = bool(root.get("bluetooth_enabled", True))
+
     section = root.get(DOWNLOAD_SECTION, root.get(LEGACY_BLE_DOWNLOAD_SECTION, {}))
     if not isinstance(section, dict):
         section = {}
@@ -122,7 +127,6 @@ def _root_cfg_normalise(root):
             ble[k] = section[k]
 
     try:
-        ble["enabled"] = bool(ble.get("enabled", True))
         ble["start_on_boot"] = bool(ble.get("start_on_boot", True))
         ble["adv_interval_us"] = int(ble.get("adv_interval_us", 200000))
         ble["debug"] = bool(ble.get("debug", False))
@@ -199,6 +203,7 @@ def _cfg_load():
     cfg["multiple_program_filesystem"] = bool(
         root.get("multiple_program_filesystem", False)
     )
+    cfg["bluetooth_enabled"] = bool(root.get("bluetooth_enabled", True))
 
     _cfg_cache = cfg
     return cfg
@@ -249,7 +254,13 @@ def config_set(**kwargs):
 
 
 def enable_persistent(on=True):
-    return config_set(enabled=bool(on))
+    root = _root_cfg_load()
+    root["bluetooth_enabled"] = bool(on)
+    ok = _root_cfg_save(root)
+    if ok:
+        global _cfg_cache
+        _cfg_cache = None
+    return ok
 
 
 def start_on_boot_persistent(on=True):
@@ -423,6 +434,25 @@ def _is_program_file(path):
     return _is_py_file(path)
 
 
+def _program_name_from_path(path):
+    path = _normalise_path(path)
+
+    if not path:
+        return None
+
+    prefix = PROGRAMS_ROOT + "/"
+    if not path.startswith(prefix):
+        return None
+
+    rel = path[len(prefix):]
+    parts = rel.split("/")
+
+    if len(parts) < 2 or not _is_safe_path_part(parts[0]):
+        return None
+
+    return parts[0]
+
+
 def _upload_allowed(path):
     path = _normalise_path(path)
 
@@ -535,6 +565,9 @@ def _list_dir(path="/"):
 
     for name in names:
         try:
+            if name in (PROGRAM_DOWNLOAD_COUNTER_FILE, PROGRAM_DOWNLOAD_ORDER_FILE):
+                continue
+
             full = (path.rstrip("/") + "/" + name) if path != "/" else "/" + name
 
             if name.endswith(".download.tmp"):
@@ -594,6 +627,49 @@ def _program_capabilities():
         "main_file": PROGRAM_MAIN_FILE,
         "launcher": "/main.py",
     }
+
+
+def _program_download_counter_path():
+    return PROGRAMS_ROOT + "/" + PROGRAM_DOWNLOAD_COUNTER_FILE
+
+
+def _program_download_order_path(program_name):
+    return PROGRAMS_ROOT + "/" + program_name + "/" + PROGRAM_DOWNLOAD_ORDER_FILE
+
+
+def _read_int_file(path, default=0):
+    try:
+        with open(path) as f:
+            return int(f.read().strip() or default)
+    except Exception:
+        return default
+
+
+def _write_text_file(path, value):
+    try:
+        with open(path, "w") as f:
+            f.write(str(value))
+        return True
+    except Exception:
+        return False
+
+
+def _mark_program_download(path):
+    program_name = _program_name_from_path(path)
+
+    if program_name is None:
+        return
+
+    try:
+        os.mkdir(PROGRAMS_ROOT)
+    except Exception:
+        pass
+
+    counter_path = _program_download_counter_path()
+    order = _read_int_file(counter_path, 0) + 1
+
+    _write_text_file(counter_path, order)
+    _write_text_file(_program_download_order_path(program_name), order)
 
 
 def _file_crc32(path):
@@ -945,7 +1021,7 @@ class EvoDownloadManager:
             self._data_q = []
 
             try:
-                if config_get().get("enabled", True):
+                if config_get().get("bluetooth_enabled", True):
                     self.start_advertising(self._adv_interval_us)
             except Exception:
                 pass
@@ -1537,6 +1613,7 @@ class EvoDownloadManager:
                 final_size = self._put_received
 
                 _safe_replace(tmp_path, final_path)
+                _mark_program_download(final_path)
 
                 self._put_active = False
                 self._put_path = None
@@ -1965,6 +2042,12 @@ def stop():
         pass
 
     try:
+        if _service_instance._conn_handle is not None:
+            _service_instance._ble.gap_disconnect(_service_instance._conn_handle)
+    except Exception:
+        pass
+
+    try:
         _service_instance.stop_advertising()
     except Exception:
         pass
@@ -1973,7 +2056,7 @@ def stop():
 def auto_start():
     cfg = _cfg_load()
 
-    if not cfg.get("enabled", True):
+    if not cfg.get("bluetooth_enabled", True):
         return None
 
     if not cfg.get("start_on_boot", True):
@@ -2003,7 +2086,7 @@ def status():
     multi = _program_capabilities()
 
     return {
-        "enabled": cfg.get("enabled", True),
+        "bluetooth_enabled": cfg.get("bluetooth_enabled", True),
         "start_on_boot": cfg.get("start_on_boot", True),
         "name": cfg.get("name"),
         "controller_type": cfg.get("controller_type"),

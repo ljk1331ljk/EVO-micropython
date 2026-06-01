@@ -38,6 +38,10 @@
 #define EVO_DOWNLOAD_ENABLED (true)
 #endif
 
+#ifndef EVO_BLUETOOTH_ENABLED
+#define EVO_BLUETOOTH_ENABLED EVO_DOWNLOAD_ENABLED
+#endif
+
 #ifndef EVO_DOWNLOAD_START_ON_BOOT
 #define EVO_DOWNLOAD_START_ON_BOOT (true)
 #endif
@@ -249,9 +253,8 @@ static mp_obj_t evo_is_bumped(mp_obj_t pin_obj) {
 static MP_DEFINE_CONST_FUN_OBJ_1(evo_is_bumped_obj, evo_is_bumped);
 
 static mp_obj_t default_download_config(void) {
-    mp_obj_t d = mp_obj_new_dict(7);
+    mp_obj_t d = mp_obj_new_dict(6);
 
-    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_enabled), mp_obj_new_bool(EVO_DOWNLOAD_ENABLED));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_start_on_boot), mp_obj_new_bool(EVO_DOWNLOAD_START_ON_BOOT));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_adv_interval_us), mp_obj_new_int(EVO_DOWNLOAD_ADV_INTERVAL_US));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_debug), mp_obj_new_bool(EVO_DOWNLOAD_DEBUG));
@@ -263,11 +266,12 @@ static mp_obj_t default_download_config(void) {
 }
 
 static mp_obj_t default_config(void) {
-    mp_obj_t d = mp_obj_new_dict(4);
+    mp_obj_t d = mp_obj_new_dict(5);
 
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_name), new_str(EVO_DEFAULT_NAME));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_controller_type), new_str(EVO_CONTROLLER_TYPE));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_multiple_program_filesystem), mp_obj_new_bool(EVO_MULTIPLE_PROGRAM_FILESYSTEM));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_bluetooth_enabled), mp_obj_new_bool(EVO_BLUETOOTH_ENABLED));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_download), default_download_config());
 
     return d;
@@ -320,10 +324,8 @@ static mp_obj_t sanitise_download_config(mp_obj_t raw_download) {
         return def;
     }
 
-    mp_obj_t d = mp_obj_new_dict(7);
+    mp_obj_t d = mp_obj_new_dict(6);
 
-    mp_obj_t raw_enabled = dict_get_default(raw_download, MP_QSTR_enabled,
-        dict_get_default(def, MP_QSTR_enabled, mp_const_true));
     mp_obj_t raw_start = dict_get_default(raw_download, MP_QSTR_start_on_boot,
         dict_get_default(def, MP_QSTR_start_on_boot, mp_const_true));
     mp_obj_t raw_adv = dict_get_default(raw_download, MP_QSTR_adv_interval_us,
@@ -337,7 +339,6 @@ static mp_obj_t sanitise_download_config(mp_obj_t raw_download) {
     mp_obj_t raw_tick = dict_get_default(raw_download, MP_QSTR_sensor_tick_ms,
         dict_get_default(def, MP_QSTR_sensor_tick_ms, mp_obj_new_int(50)));
 
-    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_enabled), mp_obj_new_bool(obj_to_bool(raw_enabled, EVO_DOWNLOAD_ENABLED)));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_start_on_boot), mp_obj_new_bool(obj_to_bool(raw_start, EVO_DOWNLOAD_START_ON_BOOT)));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_adv_interval_us), mp_obj_new_int(obj_to_int(raw_adv, EVO_DOWNLOAD_ADV_INTERVAL_US, 20000)));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_debug), mp_obj_new_bool(obj_to_bool(raw_debug, EVO_DOWNLOAD_DEBUG)));
@@ -385,13 +386,18 @@ static mp_obj_t load_config(void) {
             mp_obj_new_bool(EVO_MULTIPLE_PROGRAM_FILESYSTEM));
         mp_obj_t multiple_program = mp_obj_new_bool(obj_to_bool(raw_multiple_program, EVO_MULTIPLE_PROGRAM_FILESYSTEM));
 
+        mp_obj_t raw_bluetooth_enabled = dict_get_default(raw_cfg, MP_QSTR_bluetooth_enabled,
+            mp_obj_new_bool(EVO_BLUETOOTH_ENABLED));
+        mp_obj_t bluetooth_enabled = mp_obj_new_bool(obj_to_bool(raw_bluetooth_enabled, EVO_BLUETOOTH_ENABLED));
+
         mp_obj_t raw_download = dict_get_default(raw_cfg, MP_QSTR_download, default_download_config());
         mp_obj_t download = sanitise_download_config(raw_download);
 
-        mp_obj_t cfg = mp_obj_new_dict(4);
+        mp_obj_t cfg = mp_obj_new_dict(5);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_name), name);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_controller_type), controller_type);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_multiple_program_filesystem), multiple_program);
+        mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_bluetooth_enabled), bluetooth_enabled);
         mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_download), download);
 
         safe_write_config(cfg);
@@ -421,8 +427,8 @@ static bool save_download_value(qstr key, mp_obj_t value) {
 // evo_init(start_download=None, start_ble=None, debug=None, adv_interval_us=None,
 //          ack_every=None, sensor_streaming=None, sensor_tick_ms=None)
 //
-// start_download=None follows /evo_config.json download.enabled and
-// download.start_on_boot. start_ble is kept as a backward-compatible alias.
+// start_download=None follows /evo_config.json bluetooth_enabled and
+// download.start_on_boot.
 // ============================================================================
 
 static mp_obj_t evo_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
@@ -457,7 +463,7 @@ static mp_obj_t evo_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args)
     mp_obj_t cfg = load_config();
     mp_obj_t download = get_download_config(cfg);
 
-    bool enabled = obj_to_bool(dict_get_default(download, MP_QSTR_enabled, mp_const_true), true);
+    bool enabled = obj_to_bool(dict_get_default(cfg, MP_QSTR_bluetooth_enabled, mp_obj_new_bool(EVO_BLUETOOTH_ENABLED)), EVO_BLUETOOTH_ENABLED);
     bool start_on_boot = obj_to_bool(dict_get_default(download, MP_QSTR_start_on_boot, mp_const_true), true);
     bool should_start = enabled && start_on_boot;
 
@@ -632,6 +638,14 @@ static mp_obj_t get_download_config_public(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(get_download_config_obj, get_download_config_public);
 
+static mp_obj_t get_bluetooth_enabled(void) {
+    mp_obj_t cfg = load_config();
+    mp_obj_t value = dict_get_default(cfg, MP_QSTR_bluetooth_enabled,
+        mp_obj_new_bool(EVO_BLUETOOTH_ENABLED));
+    return mp_obj_new_bool(obj_to_bool(value, EVO_BLUETOOTH_ENABLED));
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(get_bluetooth_enabled_obj, get_bluetooth_enabled);
+
 static mp_obj_t get_multiple_program_filesystem(void) {
     mp_obj_t cfg = load_config();
     mp_obj_t value = dict_get_default(cfg, MP_QSTR_multiple_program_filesystem,
@@ -764,21 +778,39 @@ static mp_obj_t set_download_start_on_boot(size_t n_args, const mp_obj_t *args) 
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_download_start_on_boot_obj, 1, 2, set_download_start_on_boot);
 
-static mp_obj_t set_download_enabled(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t set_bluetooth_enabled(size_t n_args, const mp_obj_t *args) {
     bool on = mp_obj_is_true(args[0]);
     bool reset = false;
     if (n_args > 1) {
         reset = mp_obj_is_true(args[1]);
     }
 
-    if (!save_download_value(MP_QSTR_enabled, mp_obj_new_bool(on))) {
+    mp_obj_t cfg = load_config();
+    mp_obj_dict_store(cfg, MP_OBJ_NEW_QSTR(MP_QSTR_bluetooth_enabled), mp_obj_new_bool(on));
+
+    if (!safe_write_config(cfg)) {
         return mp_const_false;
+    }
+
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        mp_obj_t manager = import_module("EvoDownloadManager");
+
+        if (on) {
+            mp_call_function_0(mp_load_attr(manager, MP_QSTR_start));
+        } else {
+            mp_call_function_0(mp_load_attr(manager, MP_QSTR_stop));
+        }
+
+        nlr_pop();
+    } else {
+        mp_printf(&mp_plat_print, "Bluetooth state change failed\n");
     }
 
     maybe_reset(reset);
     return mp_const_true;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_download_enabled_obj, 1, 2, set_download_enabled);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(set_bluetooth_enabled_obj, 1, 2, set_bluetooth_enabled);
 
 // ============================================================================
 // Module
@@ -793,6 +825,7 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_get_name), MP_ROM_PTR(&get_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_controller_type), MP_ROM_PTR(&get_controller_type_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_download_config), MP_ROM_PTR(&get_download_config_obj) },
+    { MP_ROM_QSTR(MP_QSTR_get_bluetooth_enabled), MP_ROM_PTR(&get_bluetooth_enabled_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_multiple_program_filesystem), MP_ROM_PTR(&get_multiple_program_filesystem_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_firmware_version), MP_ROM_PTR(&get_firmware_version_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_config), MP_ROM_PTR(&get_config_obj) },
@@ -800,8 +833,8 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_set_name), MP_ROM_PTR(&set_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_controller_type), MP_ROM_PTR(&set_controller_type_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_multiple_program_filesystem), MP_ROM_PTR(&set_multiple_program_filesystem_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_bluetooth_enabled), MP_ROM_PTR(&set_bluetooth_enabled_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_download_start_on_boot), MP_ROM_PTR(&set_download_start_on_boot_obj) },
-    { MP_ROM_QSTR(MP_QSTR_set_download_enabled), MP_ROM_PTR(&set_download_enabled_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_is_pressed), MP_ROM_PTR(&evo_is_pressed_obj) },
     { MP_ROM_QSTR(MP_QSTR_is_released), MP_ROM_PTR(&evo_is_released_obj) },
