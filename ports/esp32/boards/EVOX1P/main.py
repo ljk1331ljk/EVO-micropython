@@ -234,6 +234,11 @@ def run_project(project_name):
     time.sleep(0.5)
 
     try:
+        import sys
+
+        if project_path not in sys.path:
+            sys.path.insert(0, project_path)
+        
         with open(main_file) as f:
             code = f.read()
 
