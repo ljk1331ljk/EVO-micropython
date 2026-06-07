@@ -228,8 +228,9 @@ def display_error(error):
 
 
 def run_project(project_name):
-    main_file = join_path(join_path(PROJECT_ROOT, project_name), "main.py")
-
+    project_path = join_path(PROJECT_ROOT, project_name)
+    main_file = join_path(project_path, "main.py")
+    
     display_running(project_name)
     time.sleep(0.5)
 
