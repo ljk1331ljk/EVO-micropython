@@ -57,7 +57,7 @@ SCL1_PIN = const(13)
 # I2C device addresses
 TCA9548A_ADDR = const(0x70)
 SSD1309_ADDR = const(0x3C)
-SSD1309_CHANNEL = const(I2C5)
+SSD1309_CHANNEL = const(I2C8)
 BATTERY_CHARGER_ADDRESS = const(0x6A)
 PCA9685PW_ADDRESS = const(0x40)
 NSLEEP_PIN = const(46)
