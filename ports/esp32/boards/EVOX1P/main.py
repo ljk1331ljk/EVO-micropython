@@ -13,7 +13,7 @@ from EvoBattery import *
 # Display and battery setup
 # =========================
 
-EvoDisplay = EvoOLED(I2CA, 7)
+EvoDisplay = EvoOLED(I2CA, I2C8)
 EvoDisplay.begin()
 
 evo_battery = EvoBattery()
