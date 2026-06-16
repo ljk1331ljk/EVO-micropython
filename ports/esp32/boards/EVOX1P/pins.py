@@ -3,14 +3,14 @@ from micropython import const
 from machine import I2C, Pin
 
 # GPIO
-GPIO1A = const(4)
-GPIO1B = const(5)
-GPIO2A = const(6)
-GPIO2B = const(7)
+GPIO1A = const(5)
+GPIO1B = const(4)
+GPIO2A = const(7)
+GPIO2B = const(6)
 
 #Servo 
 SERVO1 = const(15)
-SERVO2 = const(1)
+SERVO2 = const(16)
 SERVO3 = const(17)
 SERVO4 = const(18)
 
