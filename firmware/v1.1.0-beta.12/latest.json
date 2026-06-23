@@ -29,21 +29,21 @@
           "offset": "0x0",
           "sha256": "d3a894a1f1233a652f1a54d82e2d7350ac401cf810ff262e9f8702e21cdc878f",
           "size": 19232,
-          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1e/bootloader.bin"
+          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.12/evox1e/bootloader.bin"
         },
         "partition_table": {
           "file": "EVOX1E-SPIRAM_OCT-20260623-v1.1.0-beta.12.partition-table.bin",
           "offset": "0x8000",
           "sha256": "520c18ca0bda73aed288d427d260ab051d71219f605707350e6c42401f4836fc",
           "size": 3072,
-          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1e/partition-table.bin"
+          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.12/evox1e/partition-table.bin"
         },
         "application": {
           "file": "EVOX1E-SPIRAM_OCT-20260623-v1.1.0-beta.12.micropython.bin",
           "offset": "0x10000",
           "sha256": "eb819a91d87a71b95e0b536fa8e899ea6804d4a843fc7734d3b3755621132d74",
           "size": 1879936,
-          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1e/micropython.bin"
+          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.12/evox1e/micropython.bin"
         }
       },
       "flash_sequence": [
@@ -84,21 +84,21 @@
           "offset": "0x0",
           "sha256": "9178d59d70a1ed7ad3867d926d289cfe4167669c79b02d8ffbdc02fb51ff2c73",
           "size": 19232,
-          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1p/bootloader.bin"
+          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.12/evox1p/bootloader.bin"
         },
         "partition_table": {
           "file": "EVOX1P-SPIRAM_OCT-20260623-v1.1.0-beta.12.partition-table.bin",
           "offset": "0x8000",
           "sha256": "520c18ca0bda73aed288d427d260ab051d71219f605707350e6c42401f4836fc",
           "size": 3072,
-          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1p/partition-table.bin"
+          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.12/evox1p/partition-table.bin"
         },
         "application": {
           "file": "EVOX1P-SPIRAM_OCT-20260623-v1.1.0-beta.12.micropython.bin",
           "offset": "0x10000",
           "sha256": "9076f525daa4622a3884ac89e417ce64cc9928ab5d230b3bc28db6276bb58cd2",
           "size": 1882768,
-          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1p/micropython.bin"
+          "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.12/evox1p/micropython.bin"
         }
       },
       "flash_sequence": [
@@ -120,5 +120,5 @@
       ]
     }
   ],
-  "base_url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta"
+  "base_url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.12"
 }
