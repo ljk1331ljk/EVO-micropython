@@ -424,11 +424,12 @@ static bool save_download_value(qstr key, mp_obj_t value) {
 }
 
 // ============================================================================
-// evo_init(start_download=None, start_ble=None, debug=None, adv_interval_us=None,
+// evo_init(start_download=False, start_ble=False, debug=None, adv_interval_us=None,
 //          ack_every=None, sensor_streaming=None, sensor_tick_ms=None)
 //
-// start_download=None follows /evo_config.json bluetooth_enabled and
-// download.start_on_boot.
+// evo_init() always loads/creates /evo_config.json but only starts
+// EvoDownloadManager when start_download=True or start_ble=True is explicitly
+// passed.
 // ============================================================================
 
 static mp_obj_t evo_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
@@ -463,14 +464,14 @@ static mp_obj_t evo_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args)
     mp_obj_t cfg = load_config();
     mp_obj_t download = get_download_config(cfg);
 
-    bool enabled = obj_to_bool(dict_get_default(cfg, MP_QSTR_bluetooth_enabled, mp_obj_new_bool(EVO_BLUETOOTH_ENABLED)), EVO_BLUETOOTH_ENABLED);
-    bool start_on_boot = obj_to_bool(dict_get_default(download, MP_QSTR_start_on_boot, mp_const_true), true);
-    bool should_start = enabled && start_on_boot;
+    bool should_start = false;
 
     if (vals[ARG_start_download].u_obj != MP_OBJ_NULL) {
-        should_start = obj_to_bool(vals[ARG_start_download].u_obj, should_start);
-    } else if (vals[ARG_start_ble].u_obj != MP_OBJ_NULL) {
-        should_start = obj_to_bool(vals[ARG_start_ble].u_obj, should_start);
+        should_start = should_start || obj_to_bool(vals[ARG_start_download].u_obj, false);
+    }
+
+    if (vals[ARG_start_ble].u_obj != MP_OBJ_NULL) {
+        should_start = should_start || obj_to_bool(vals[ARG_start_ble].u_obj, false);
     }
 
     if (!should_start) {
@@ -540,6 +541,32 @@ static mp_obj_t evo_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args)
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(evo_init_obj, 0, evo_init);
+
+static mp_obj_t evo_start_download(void) {
+    mp_obj_t cfg = load_config();
+    mp_obj_t download = get_download_config(cfg);
+
+    bool enabled = obj_to_bool(dict_get_default(cfg, MP_QSTR_bluetooth_enabled,
+        mp_obj_new_bool(EVO_BLUETOOTH_ENABLED)), EVO_BLUETOOTH_ENABLED);
+    bool start_on_boot = obj_to_bool(dict_get_default(download, MP_QSTR_start_on_boot,
+        mp_obj_new_bool(EVO_DOWNLOAD_START_ON_BOOT)), EVO_DOWNLOAD_START_ON_BOOT);
+
+    if (!enabled || !start_on_boot) {
+        return mp_const_false;
+    }
+
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        mp_obj_t manager = import_module("EvoDownloadManager");
+        mp_call_function_0(mp_load_attr(manager, MP_QSTR_start));
+        nlr_pop();
+        return mp_const_true;
+    }
+
+    mp_printf(&mp_plat_print, "EvoDownloadManager start failed\n");
+    return mp_const_false;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(evo_start_download_obj, evo_start_download);
 
 // ============================================================================
 // Unified log(*args, sep=" ", end="\n", stream="stdout")
@@ -820,6 +847,7 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_evo) },
 
     { MP_ROM_QSTR(MP_QSTR_evo_init), MP_ROM_PTR(&evo_init_obj) },
+    { MP_ROM_QSTR(MP_QSTR_evo_start_download), MP_ROM_PTR(&evo_start_download_obj) },
     { MP_ROM_QSTR(MP_QSTR_log), MP_ROM_PTR(&evo_log_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_get_name), MP_ROM_PTR(&get_name_obj) },

@@ -1644,11 +1644,18 @@ class EvoDownloadManager:
 
         if op == "RESET":
             self._sensor_stream_stop({})
+            mode = cmd.get("mode", "soft")
             self._notify_json({
                 "op": "RESETTING",
+                "mode": mode,
             })
             utime.sleep_ms(80)
-            machine.reset()
+
+            if mode == "hard":
+                machine.reset()
+            else:
+                machine.soft_reset()
+
             return
 
         if op == "SENSOR_LIST":
@@ -2054,15 +2061,24 @@ def stop():
 
 
 def auto_start():
-    cfg = _cfg_load()
+    try:
+        cfg = _cfg_load()
 
-    if not cfg.get("bluetooth_enabled", True):
+        if not cfg.get("bluetooth_enabled", True):
+            return None
+
+        if not cfg.get("start_on_boot", True):
+            return None
+
+        return start()
+
+    except Exception as e:
+        try:
+            print("EvoDownloadManager failed:", e)
+        except Exception:
+            pass
+
         return None
-
-    if not cfg.get("start_on_boot", True):
-        return None
-
-    return start()
 
 
 def console_write(text, stream="stdout"):
