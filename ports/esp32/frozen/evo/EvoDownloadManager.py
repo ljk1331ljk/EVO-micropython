@@ -1994,7 +1994,7 @@ def start(
     cfg = _cfg_load()
 
     if name is None:
-        name = cfg.get("name", _DEFAULT_BLE_DOWNLOAD_CFG["name"])
+        name = cfg.get("name", _DEFAULT_ROOT_CFG["name"])
 
     if adv_interval_us is None:
         adv_interval_us = int(cfg.get(
