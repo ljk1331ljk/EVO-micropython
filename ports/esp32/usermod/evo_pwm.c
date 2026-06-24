@@ -24,30 +24,15 @@ static mp_machine_i2c_p_t *get_i2c_proto(mp_obj_t i2c) {
     return (mp_machine_i2c_p_t*)MP_OBJ_TYPE_GET_SLOT(mp_obj_get_type(i2c), protocol);
 }
 
-static void i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, const uint8_t *buf, size_t len) {
-    mp_machine_i2c_p_t *p = get_i2c_proto(i2c);
-    if (!p || !p->transfer) {
-        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("I2C transfer unsupported"));
-    }
+static void safe_i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, const uint8_t *buf, size_t len) {
+    mp_obj_t dest[5];
+    mp_load_method(i2c, MP_QSTR_writeto_mem, dest);
 
-    uint8_t tmp[1 + 8];
-    if (len > 8) {
-        mp_raise_ValueError(MP_ERROR_TEXT("i2c write too long"));
-    }
+    dest[2] = mp_obj_new_int(addr);
+    dest[3] = mp_obj_new_int(memaddr);
+    dest[4] = mp_obj_new_bytes(buf, len);
 
-    tmp[0] = memaddr;
-    for (size_t i = 0; i < len; i++) {
-        tmp[1 + i] = buf[i];
-    }
-
-    mp_machine_i2c_buf_t bufs[1] = {
-        { .len = 1 + len, .buf = tmp }
-    };
-
-    int ret = p->transfer(i2c, addr, 1, bufs, MP_MACHINE_I2C_FLAG_STOP);
-    if (ret < 0) {
-        mp_raise_OSError(-ret);
-    }
+    mp_call_method_n_kw(3, 0, dest);
 }
 
 static uint8_t i2c_readfrom_mem_u8(mp_obj_t i2c, uint16_t addr, uint8_t memaddr) {
@@ -80,7 +65,14 @@ void evo_pwm_set_raw(evo_pwm_obj_t *pwm, uint8_t ch, int on, int off) {
         (uint8_t)(off & 0xFF),
         (uint8_t)((off >> 8) & 0xFF),
     };
-    i2c_writeto_mem(pwm->i2c_obj, pwm->addr, (uint8_t)(PCA9685_LED0_ON_L + 4 * ch), buf, 4);
+
+    safe_i2c_writeto_mem(
+        pwm->i2c_obj,
+        pwm->addr,
+        (uint8_t)(PCA9685_LED0_ON_L + 4 * ch),
+        buf,
+        4
+    );
 }
 
 static mp_obj_t import_board_pins(void) {
@@ -110,7 +102,7 @@ mp_obj_t evo_get_pwm_singleton(void) {
     obj->addr = get_board_pwm_addr();
 
     uint8_t mode1 = 0x20; // AI=1
-    i2c_writeto_mem(obj->i2c_obj, obj->addr, PCA9685_MODE1, &mode1, 1);
+    safe_i2c_writeto_mem(obj->i2c_obj, obj->addr, PCA9685_MODE1, &mode1, 1);
 
     *root = MP_OBJ_FROM_PTR(obj);
     return *root;
@@ -138,16 +130,16 @@ static mp_obj_t evo_pwm_freq(size_t n_args, const mp_obj_t *args) {
     uint8_t old_mode = i2c_readfrom_mem_u8(self->i2c_obj, self->addr, PCA9685_MODE1);
 
     uint8_t sleep_mode = (old_mode & 0x7F) | 0x10;
-    i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &sleep_mode, 1);
+    safe_i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &sleep_mode, 1);
 
     uint8_t p = (uint8_t)prescale;
-    i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_PRESCALE, &p, 1);
+    safe_i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_PRESCALE, &p, 1);
 
-    i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &old_mode, 1);
+    safe_i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &old_mode, 1);
     mp_hal_delay_us(5);
 
     uint8_t ai = old_mode | 0x20;
-    i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &ai, 1);
+    safe_i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &ai, 1);
 
     return mp_const_none;
 }
