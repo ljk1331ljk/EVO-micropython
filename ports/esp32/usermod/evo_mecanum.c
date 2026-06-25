@@ -35,6 +35,10 @@ static inline int abs_i(int v) {
     return v < 0 ? -v : v;
 }
 
+static inline int obj_get_rounded_int(mp_obj_t obj) {
+    return (int)roundf((float)mp_obj_get_float(obj));
+}
+
 static inline float clamp_f(float v, float lo, float hi) {
     if (v < lo) return lo;
     if (v > hi) return hi;
@@ -593,14 +597,14 @@ static mp_obj_t evo_mecanum_make_new(const mp_obj_type_t *type,
 
 static mp_obj_t mp_setStartSpeed(mp_obj_t self_in, mp_obj_t v_in) {
     evo_mecanum_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    self->startSpeed = abs_i(mp_obj_get_int(v_in));
+    self->startSpeed = abs_i(obj_get_rounded_int(v_in));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mp_setStartSpeed_obj, mp_setStartSpeed);
 
 static mp_obj_t mp_setEndSpeed(mp_obj_t self_in, mp_obj_t v_in) {
     evo_mecanum_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    self->endSpeed = abs_i(mp_obj_get_int(v_in));
+    self->endSpeed = abs_i(obj_get_rounded_int(v_in));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mp_setEndSpeed_obj, mp_setEndSpeed);
@@ -680,9 +684,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(mp_getSyncPID_obj, mp_getSyncPID);
 static mp_obj_t mp_movePower(size_t n_args, const mp_obj_t *args) {
     evo_mecanum_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     (void)n_args;
-    int xSpeed = mp_obj_get_int(args[1]);
-    int ySpeed = mp_obj_get_int(args[2]);
-    int turnSpeed = mp_obj_get_int(args[3]);
+    int xSpeed = obj_get_rounded_int(args[1]);
+    int ySpeed = obj_get_rounded_int(args[2]);
+    int turnSpeed = obj_get_rounded_int(args[3]);
 
     evo_mecanum_exec_t st;
     memset(&st, 0, sizeof(st));
@@ -703,9 +707,9 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_movePower_obj, 4, 4, mp_movePower)
 static mp_obj_t mp_moveSpeed(size_t n_args, const mp_obj_t *args) {
     evo_mecanum_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     (void)n_args;
-    int xSpeed = mp_obj_get_int(args[1]);
-    int ySpeed = mp_obj_get_int(args[2]);
-    int turnSpeed = mp_obj_get_int(args[3]);
+    int xSpeed = obj_get_rounded_int(args[1]);
+    int ySpeed = obj_get_rounded_int(args[2]);
+    int turnSpeed = obj_get_rounded_int(args[3]);
 
     evo_mecanum_exec_t st;
     memset(&st, 0, sizeof(st));
@@ -723,9 +727,9 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_move_obj, 4, 4, mp_moveSpeed);
 
 static mp_obj_t mp_moveDegrees(size_t n_args, const mp_obj_t *args) {
     evo_mecanum_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    int xSpeed = mp_obj_get_int(args[1]);
-    int ySpeed = mp_obj_get_int(args[2]);
-    int turnSpeed = mp_obj_get_int(args[3]);
+    int xSpeed = obj_get_rounded_int(args[1]);
+    int ySpeed = obj_get_rounded_int(args[2]);
+    int turnSpeed = obj_get_rounded_int(args[3]);
     int degrees = mp_obj_get_int(args[4]);
     int stopBehavior = (n_args >= 6)
         ? normalize_stop_behavior_obj(args[5])
@@ -738,9 +742,9 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_moveDegrees_obj, 5, 6, mp_moveDegr
 
 static mp_obj_t mp_moveTime(size_t n_args, const mp_obj_t *args) {
     evo_mecanum_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    int xSpeed = mp_obj_get_int(args[1]);
-    int ySpeed = mp_obj_get_int(args[2]);
-    int turnSpeed = mp_obj_get_int(args[3]);
+    int xSpeed = obj_get_rounded_int(args[1]);
+    int ySpeed = obj_get_rounded_int(args[2]);
+    int turnSpeed = obj_get_rounded_int(args[3]);
     int timems = mp_obj_get_int(args[4]);
     int slowdowntime = (n_args >= 6) ? mp_obj_get_int(args[5]) : 200;
     int stopBehavior = (n_args >= 7)
