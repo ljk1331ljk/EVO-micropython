@@ -34,6 +34,10 @@ static inline int abs_i(int v) {
     return v < 0 ? -v : v;
 }
 
+static inline int obj_get_rounded_int(mp_obj_t obj) {
+    return (int)roundf((float)mp_obj_get_float(obj));
+}
+
 static inline int motor_angle_int(evo_motor_obj_t *m) {
     return (int)evo_motor_get_angle_deg(m);
 }
@@ -517,14 +521,14 @@ static mp_obj_t evo_motorpair_make_new(const mp_obj_type_t *type,
 
 static mp_obj_t mp_setStartSpeed(mp_obj_t self_in, mp_obj_t v_in) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    self->startSpeed = abs_i(mp_obj_get_int(v_in));
+    self->startSpeed = abs_i(obj_get_rounded_int(v_in));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mp_setStartSpeed_obj, mp_setStartSpeed);
 
 static mp_obj_t mp_setEndSpeed(mp_obj_t self_in, mp_obj_t v_in) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    self->endSpeed = abs_i(mp_obj_get_int(v_in));
+    self->endSpeed = abs_i(obj_get_rounded_int(v_in));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mp_setEndSpeed_obj, mp_setEndSpeed);
@@ -629,8 +633,8 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_move_obj, 3, 3, mp_move);
 // The encoder synchronization keeps both motors following the requested speed ratio.
 static mp_obj_t mp_moveDegrees(size_t n_args, const mp_obj_t *args) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    int leftSpeed = mp_obj_get_int(args[1]);
-    int rightSpeed = mp_obj_get_int(args[2]);
+    int leftSpeed = obj_get_rounded_int(args[1]);
+    int rightSpeed = obj_get_rounded_int(args[2]);
     int degrees = mp_obj_get_int(args[3]);
     int stopBehavior = (n_args >= 5)
         ? normalize_stop_behavior_obj(args[4])
@@ -644,8 +648,8 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_moveDegrees_obj, 4, 5, mp_moveDegr
 
 static mp_obj_t mp_moveTime(size_t n_args, const mp_obj_t *args) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    int leftSpeed = mp_obj_get_int(args[1]);
-    int rightSpeed = mp_obj_get_int(args[2]);
+    int leftSpeed = obj_get_rounded_int(args[1]);
+    int rightSpeed = obj_get_rounded_int(args[2]);
     int timems = mp_obj_get_int(args[3]);
     int slowdowntime = (n_args >= 5) ? mp_obj_get_int(args[4]) : 200;
     int stopBehavior = (n_args >= 6)
