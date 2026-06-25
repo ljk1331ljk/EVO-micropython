@@ -18,17 +18,20 @@ static mp_obj_t get_board_I2CB(void);
 MP_REGISTER_ROOT_POINTER(mp_obj_t evo_pwm_singleton);
 
 static void safe_i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, const uint8_t *buf, size_t len) {
+    (void)i2c;
+
     for (int attempt = 0; attempt < EVO_PWM_I2C_RETRIES; attempt++) {
         nlr_buf_t nlr;
         if (nlr_push(&nlr) == 0) {
-            mp_obj_t dest[5];
-            mp_load_method(i2c, MP_QSTR_writeto_mem, dest);
+            mp_obj_t helper = mp_import_name(qstr_from_str("_evo_pwm"), mp_const_none, MP_OBJ_NEW_SMALL_INT(0));
+            mp_obj_t write = mp_load_attr(helper, qstr_from_str("writeto_mem"));
 
-            dest[2] = mp_obj_new_int(addr);
-            dest[3] = mp_obj_new_int(memaddr);
-            dest[4] = mp_obj_new_bytes(buf, len);
-
-            mp_call_method_n_kw(3, 0, dest);
+            mp_call_function_3(
+                write,
+                mp_obj_new_int(addr),
+                mp_obj_new_int(memaddr),
+                mp_obj_new_bytes(buf, len)
+            );
             nlr_pop();
             return;
         }
@@ -130,7 +133,6 @@ mp_obj_t evo_get_pwm_singleton(void) {
     obj->addr = get_board_pwm_addr();
     obj->freq_hz = 0;
 
-    evo_pwm_reset(obj);
     *root = MP_OBJ_FROM_PTR(obj);
     return *root;
 }
