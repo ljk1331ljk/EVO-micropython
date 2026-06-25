@@ -127,9 +127,9 @@
     ]
   },
   "latest_beta": {
-    "version": "v1.1.0-beta.21",
-    "release_tag": "v1.1.0-beta.21",
-    "generated_at": "2026-06-25T14:12:30Z",
+    "version": "v1.1.0-beta.22",
+    "release_tag": "v1.1.0-beta.22",
+    "generated_at": "2026-06-25T14:32:43Z",
     "manifest_url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/latest.json",
     "devices": [
       {
