@@ -78,15 +78,12 @@ static uint16_t get_board_pwm_addr(void) {
 void evo_pwm_reset(evo_pwm_obj_t *pwm) {
     mp_obj_t i2c = get_board_I2CB();
 
-    uint8_t mode1 = 0x00;
-    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &mode1, 1);
-    mp_hal_delay_ms(5);
-
     uint8_t mode2 = PCA9685_MODE2_OUTDRV;
     safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE2, &mode2, 1);
 
-    mode1 = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
+    uint8_t mode1 = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
     safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &mode1, 1);
+    mp_hal_delay_ms(5);
 
     pwm->freq_hz = 0;
 }
@@ -99,7 +96,7 @@ void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
         return;
     }
 
-    int prescale = (int)(25000000.0f / 4096.0f / (float)hz + 0.5f);
+    int prescale = (int)(25000000.0f / 4096.0f / (float)hz + 0.5f) - 1;
     if (prescale < 3) prescale = 3;
     if (prescale > 255) prescale = 255;
 
