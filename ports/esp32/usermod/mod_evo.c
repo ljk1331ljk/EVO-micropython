@@ -693,6 +693,13 @@ static mp_obj_t get_config(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(get_config_obj, get_config);
 
+static mp_obj_t reset_pwm(void) {
+    evo_pwm_obj_t *pwm = MP_OBJ_TO_PTR(evo_get_pwm_singleton());
+    evo_pwm_reset(pwm);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(reset_pwm_obj, reset_pwm);
+
 // ============================================================================
 // Setters
 // ============================================================================
@@ -857,6 +864,7 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_get_multiple_program_filesystem), MP_ROM_PTR(&get_multiple_program_filesystem_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_firmware_version), MP_ROM_PTR(&get_firmware_version_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_config), MP_ROM_PTR(&get_config_obj) },
+    { MP_ROM_QSTR(MP_QSTR_reset_pwm), MP_ROM_PTR(&reset_pwm_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_set_name), MP_ROM_PTR(&set_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_controller_type), MP_ROM_PTR(&set_controller_type_obj) },

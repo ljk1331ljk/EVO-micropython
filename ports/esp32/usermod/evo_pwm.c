@@ -75,6 +75,22 @@ static uint16_t get_board_pwm_addr(void) {
     return (uint16_t)mp_obj_get_int(mp_load_attr(pins, qstr_from_str("PCA9685PW_ADDRESS")));
 }
 
+void evo_pwm_reset(evo_pwm_obj_t *pwm) {
+    mp_obj_t i2c = get_board_I2CB();
+
+    uint8_t mode1 = 0x00;
+    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &mode1, 1);
+    mp_hal_delay_ms(5);
+
+    uint8_t mode2 = PCA9685_MODE2_OUTDRV;
+    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE2, &mode2, 1);
+
+    mode1 = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
+    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &mode1, 1);
+
+    pwm->freq_hz = 0;
+}
+
 void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
     if (hz <= 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("freq must be > 0"));
@@ -117,21 +133,18 @@ mp_obj_t evo_get_pwm_singleton(void) {
     obj->addr = get_board_pwm_addr();
     obj->freq_hz = 0;
 
-    mp_obj_t i2c = get_board_I2CB();
-
-    uint8_t mode1 = PCA9685_MODE1_ALLCALL;
-    safe_i2c_writeto_mem(i2c, obj->addr, PCA9685_MODE1, &mode1, 1);
-    mp_hal_delay_ms(5);
-
-    uint8_t mode2 = PCA9685_MODE2_OUTDRV;
-    safe_i2c_writeto_mem(i2c, obj->addr, PCA9685_MODE2, &mode2, 1);
-
-    mode1 = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
-    safe_i2c_writeto_mem(i2c, obj->addr, PCA9685_MODE1, &mode1, 1);
+    evo_pwm_reset(obj);
     *root = MP_OBJ_FROM_PTR(obj);
     return *root;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(evo_get_pwm_singleton_obj, evo_get_pwm_singleton);
+
+static mp_obj_t evo_pwm_reset_method(mp_obj_t self_in) {
+    evo_pwm_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    evo_pwm_reset(self);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(evo_pwm_reset_obj, evo_pwm_reset_method);
 
 static mp_obj_t evo_pwm_freq(size_t n_args, const mp_obj_t *args) {
     evo_pwm_obj_t *self = MP_OBJ_TO_PTR(args[0]);
@@ -165,6 +178,7 @@ static mp_obj_t evo_pwm_pwm(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(evo_pwm_pwm_obj, 4, 4, evo_pwm_pwm);
 
 static const mp_rom_map_elem_t evo_pwm_locals_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_reset), MP_ROM_PTR(&evo_pwm_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_freq), MP_ROM_PTR(&evo_pwm_freq_obj) },
     { MP_ROM_QSTR(MP_QSTR_pwm),  MP_ROM_PTR(&evo_pwm_pwm_obj)  },
 };
