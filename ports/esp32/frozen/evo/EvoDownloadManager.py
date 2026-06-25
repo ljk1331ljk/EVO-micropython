@@ -1644,7 +1644,11 @@ class EvoDownloadManager:
 
         if op == "RESET":
             self._sensor_stream_stop({})
-            mode = cmd.get("mode", "soft")
+            # A soft reset restarts MicroPython but can leave external I2C
+            # peripherals, such as the motor PCA9685, in a stale state after a
+            # downloaded program has run. Default to a full board reset after
+            # uploads so each run starts like the first run after flashing.
+            mode = cmd.get("mode", "hard")
             self._notify_json({
                 "op": "RESETTING",
                 "mode": mode,
