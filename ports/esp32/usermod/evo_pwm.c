@@ -4,14 +4,6 @@
 #include "py/qstr.h"
 #include "py/mpstate.h"
 
-#if __has_include("extmod/machine_i2c.h")
-    #include "extmod/machine_i2c.h"
-#elif __has_include("extmod/modmachine_i2c.h")
-    #include "extmod/modmachine_i2c.h"
-#else
-    #include "extmod/modmachine.h"
-#endif
-
 #include "evo_pwm.h"
 
 // Forward declaration for use before MP_DEFINE_CONST_OBJ_TYPE(...)
@@ -19,10 +11,6 @@ extern const mp_obj_type_t evo_pwm_type;
 
 // GC-rooted singleton
 MP_REGISTER_ROOT_POINTER(mp_obj_t evo_pwm_singleton);
-
-static mp_machine_i2c_p_t *get_i2c_proto(mp_obj_t i2c) {
-    return (mp_machine_i2c_p_t*)MP_OBJ_TYPE_GET_SLOT(mp_obj_get_type(i2c), protocol);
-}
 
 static void safe_i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, const uint8_t *buf, size_t len) {
     mp_obj_t dest[5];
@@ -36,26 +24,22 @@ static void safe_i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, c
 }
 
 static uint8_t i2c_readfrom_mem_u8(mp_obj_t i2c, uint16_t addr, uint8_t memaddr) {
-    mp_machine_i2c_p_t *p = get_i2c_proto(i2c);
-    if (!p || !p->transfer) {
-        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("I2C transfer unsupported"));
+    mp_obj_t dest[5];
+    mp_load_method(i2c, MP_QSTR_readfrom_mem, dest);
+
+    dest[2] = mp_obj_new_int(addr);
+    dest[3] = mp_obj_new_int(memaddr);
+    dest[4] = mp_obj_new_int(1);
+
+    mp_obj_t data = mp_call_method_n_kw(3, 0, dest);
+
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(data, &bufinfo, MP_BUFFER_READ);
+    if (bufinfo.len < 1) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("I2C read returned no data"));
     }
 
-    uint8_t out = 0;
-    mp_machine_i2c_buf_t w[1] = {{ .len = 1, .buf = &memaddr }};
-    mp_machine_i2c_buf_t r[1] = {{ .len = 1, .buf = &out }};
-
-    int ret = p->transfer(i2c, addr, 1, w, 0);
-    if (ret < 0) {
-        mp_raise_OSError(-ret);
-    }
-
-    ret = p->transfer(i2c, addr, 1, r, MP_MACHINE_I2C_FLAG_READ | MP_MACHINE_I2C_FLAG_STOP);
-    if (ret < 0) {
-        mp_raise_OSError(-ret);
-    }
-
-    return out;
+    return ((const uint8_t *)bufinfo.buf)[0];
 }
 
 void evo_pwm_set_raw(evo_pwm_obj_t *pwm, uint8_t ch, int on, int off) {
