@@ -10,6 +10,8 @@
 
 #include "evo_motor.h"
 
+#define EVO_MOTOR_PWM_FREQ_HZ 2500
+
 static const int8_t quad_table[16] = {
      0, -1, +1,  0,
     +1,  0,  0, -1,
@@ -307,15 +309,33 @@ static inline int clamp_power(int s) {
     return s;
 }
 
+static inline void motor_prepare_pwm(evo_motor_obj_t *m) {
+    evo_pwm_set_freq(m->pwm, EVO_MOTOR_PWM_FREQ_HZ);
+}
+
+// PCA9685 special full-on/full-off bit. Keep normal motor power scaled to
+// 0..4095, but use 4096 when a channel must be explicitly driven fully on/off.
+#define EVO_PWM_FULL 4096
+
+static inline void motor_pwm_off(evo_motor_obj_t *m, uint8_t ch) {
+    evo_pwm_set_raw(m->pwm, ch, 0, EVO_PWM_FULL);
+}
+
+static inline void motor_pwm_full_on(evo_motor_obj_t *m, uint8_t ch) {
+    evo_pwm_set_raw(m->pwm, ch, EVO_PWM_FULL, 0);
+}
+
 static inline void motor_coast(evo_motor_obj_t *m) {
-    evo_pwm_set_raw(m->pwm, m->power1, 0, 0);
-    evo_pwm_set_raw(m->pwm, m->power2, 0, 0);
+    motor_prepare_pwm(m);
+    motor_pwm_off(m, m->power1);
+    motor_pwm_off(m, m->power2);
 }
 
 static inline void motor_brake(evo_motor_obj_t *m) {
     evo_motor_wake_drivers();
-    evo_pwm_set_raw(m->pwm, m->power1, 0, EVO_PWM_MAX);
-    evo_pwm_set_raw(m->pwm, m->power2, 0, EVO_PWM_MAX);
+    motor_prepare_pwm(m);
+    motor_pwm_full_on(m, m->power1);
+    motor_pwm_full_on(m, m->power2);
 }
 
 static inline void motor_hold(evo_motor_obj_t *m) {
@@ -347,11 +367,13 @@ void evo_motor_run_power_c(evo_motor_obj_t *m, int power) {
         evo_motor_wake_drivers();
     }
 
+    motor_prepare_pwm(m);
+
     if (s > 0) {
         evo_pwm_set_raw(m->pwm, m->power1, 0, s);
-        evo_pwm_set_raw(m->pwm, m->power2, 0, 0);
+        motor_pwm_off(m, m->power2);
     } else if (s < 0) {
-        evo_pwm_set_raw(m->pwm, m->power1, 0, 0);
+        motor_pwm_off(m, m->power1);
         evo_pwm_set_raw(m->pwm, m->power2, 0, -s);
     } else {
         motor_stop_by_behaviour(m);

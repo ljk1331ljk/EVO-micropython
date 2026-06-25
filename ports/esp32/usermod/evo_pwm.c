@@ -89,6 +89,30 @@ static uint16_t get_board_pwm_addr(void) {
     return (uint16_t)mp_obj_get_int(mp_load_attr(pins, qstr_from_str("PCA9685PW_ADDRESS")));
 }
 
+void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
+    if (hz <= 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("freq must be > 0"));
+    }
+
+    int prescale = (int)(25000000.0f / 4096.0f / (float)hz + 0.5f);
+    if (prescale < 3) prescale = 3;
+    if (prescale > 255) prescale = 255;
+
+    uint8_t old_mode = i2c_readfrom_mem_u8(pwm->i2c_obj, pwm->addr, PCA9685_MODE1);
+
+    uint8_t sleep_mode = (old_mode & 0x7F) | 0x10;
+    safe_i2c_writeto_mem(pwm->i2c_obj, pwm->addr, PCA9685_MODE1, &sleep_mode, 1);
+
+    uint8_t p = (uint8_t)prescale;
+    safe_i2c_writeto_mem(pwm->i2c_obj, pwm->addr, PCA9685_PRESCALE, &p, 1);
+
+    safe_i2c_writeto_mem(pwm->i2c_obj, pwm->addr, PCA9685_MODE1, &old_mode, 1);
+    mp_hal_delay_us(5);
+
+    uint8_t ai = old_mode | 0x20;
+    safe_i2c_writeto_mem(pwm->i2c_obj, pwm->addr, PCA9685_MODE1, &ai, 1);
+}
+
 mp_obj_t evo_get_pwm_singleton(void) {
     mp_obj_t *root = &MP_STATE_PORT(evo_pwm_singleton);
     if (*root != MP_OBJ_NULL) {
@@ -101,9 +125,15 @@ mp_obj_t evo_get_pwm_singleton(void) {
     obj->i2c_obj = i2cb;
     obj->addr = get_board_pwm_addr();
 
-    uint8_t mode1 = 0x20; // AI=1
+    uint8_t mode1 = PCA9685_MODE1_ALLCALL;
     safe_i2c_writeto_mem(obj->i2c_obj, obj->addr, PCA9685_MODE1, &mode1, 1);
+    mp_hal_delay_ms(5);
 
+    uint8_t mode2 = PCA9685_MODE2_OUTDRV;
+    safe_i2c_writeto_mem(obj->i2c_obj, obj->addr, PCA9685_MODE2, &mode2, 1);
+
+    mode1 = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
+    safe_i2c_writeto_mem(obj->i2c_obj, obj->addr, PCA9685_MODE1, &mode1, 1);
     *root = MP_OBJ_FROM_PTR(obj);
     return *root;
 }
@@ -118,28 +148,7 @@ static mp_obj_t evo_pwm_freq(size_t n_args, const mp_obj_t *args) {
         return mp_obj_new_int((int)f);
     }
 
-    int hz = mp_obj_get_int(args[1]);
-    if (hz <= 0) {
-        mp_raise_ValueError(MP_ERROR_TEXT("freq must be > 0"));
-    }
-
-    int prescale = (int)(25000000.0f / 4096.0f / (float)hz + 0.5f);
-    if (prescale < 3) prescale = 3;
-    if (prescale > 255) prescale = 255;
-
-    uint8_t old_mode = i2c_readfrom_mem_u8(self->i2c_obj, self->addr, PCA9685_MODE1);
-
-    uint8_t sleep_mode = (old_mode & 0x7F) | 0x10;
-    safe_i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &sleep_mode, 1);
-
-    uint8_t p = (uint8_t)prescale;
-    safe_i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_PRESCALE, &p, 1);
-
-    safe_i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &old_mode, 1);
-    mp_hal_delay_us(5);
-
-    uint8_t ai = old_mode | 0x20;
-    safe_i2c_writeto_mem(self->i2c_obj, self->addr, PCA9685_MODE1, &ai, 1);
+    evo_pwm_set_freq(self, mp_obj_get_int(args[1]));
 
     return mp_const_none;
 }
