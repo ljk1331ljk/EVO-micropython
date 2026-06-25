@@ -67,7 +67,28 @@ static mp_obj_t import_board_pins(void) {
 
 static mp_obj_t get_board_I2CB(void) {
     mp_obj_t pins = import_board_pins();
-    return mp_load_attr(pins, qstr_from_str("I2CB"));
+    mp_obj_t machine = mp_import_name(MP_QSTR_machine, mp_const_none, MP_OBJ_NEW_SMALL_INT(0));
+    mp_obj_t i2c_type = mp_load_attr(machine, MP_QSTR_I2C);
+    mp_obj_t pin_type = mp_load_attr(machine, MP_QSTR_Pin);
+
+    mp_obj_t sda_pin = mp_call_function_1(
+        pin_type,
+        mp_load_attr(pins, qstr_from_str("SDA1_PIN"))
+    );
+    mp_obj_t scl_pin = mp_call_function_1(
+        pin_type,
+        mp_load_attr(pins, qstr_from_str("SCL1_PIN"))
+    );
+
+    mp_obj_t i2c_args[7] = {
+        mp_obj_new_int(1),
+        MP_OBJ_NEW_QSTR(MP_QSTR_sda), sda_pin,
+        MP_OBJ_NEW_QSTR(MP_QSTR_scl), scl_pin,
+        MP_OBJ_NEW_QSTR(MP_QSTR_freq), mp_obj_new_int(400000),
+    };
+    mp_obj_t i2c = mp_call_function_n_kw(i2c_type, 1, 3, i2c_args);
+    mp_store_attr(pins, qstr_from_str("I2CB"), i2c);
+    return i2c;
 }
 
 static uint16_t get_board_pwm_addr(void) {
