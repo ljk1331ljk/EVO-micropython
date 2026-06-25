@@ -907,3 +907,4 @@ const mp_obj_module_t mp_module_evo = {
 };
 
 MP_REGISTER_MODULE(MP_QSTR_evo, mp_module_evo);
+MP_REGISTER_MODULE(MP_QSTR__evo, mp_module_evo);
