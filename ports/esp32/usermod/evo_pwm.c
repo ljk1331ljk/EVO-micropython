@@ -8,6 +8,7 @@
 
 // Forward declaration for use before MP_DEFINE_CONST_OBJ_TYPE(...)
 extern const mp_obj_type_t evo_pwm_type;
+static mp_obj_t get_board_I2CB(void);
 
 // GC-rooted singleton
 MP_REGISTER_ROOT_POINTER(mp_obj_t evo_pwm_singleton);
@@ -31,8 +32,10 @@ void evo_pwm_set_raw(evo_pwm_obj_t *pwm, uint8_t ch, int on, int off) {
         (uint8_t)((off >> 8) & 0xFF),
     };
 
+    mp_obj_t i2c = get_board_I2CB();
+
     safe_i2c_writeto_mem(
-        pwm->i2c_obj,
+        i2c,
         pwm->addr,
         (uint8_t)(PCA9685_LED0_ON_L + 4 * ch),
         buf,
@@ -63,18 +66,20 @@ void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
     if (prescale < 3) prescale = 3;
     if (prescale > 255) prescale = 255;
 
+    mp_obj_t i2c = get_board_I2CB();
+
     uint8_t sleep_mode = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL | PCA9685_MODE1_SLEEP;
-    safe_i2c_writeto_mem(pwm->i2c_obj, pwm->addr, PCA9685_MODE1, &sleep_mode, 1);
+    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &sleep_mode, 1);
 
     uint8_t p = (uint8_t)prescale;
-    safe_i2c_writeto_mem(pwm->i2c_obj, pwm->addr, PCA9685_PRESCALE, &p, 1);
+    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_PRESCALE, &p, 1);
 
     uint8_t wake_mode = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
-    safe_i2c_writeto_mem(pwm->i2c_obj, pwm->addr, PCA9685_MODE1, &wake_mode, 1);
+    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &wake_mode, 1);
     mp_hal_delay_ms(5);
 
     uint8_t restart_mode = PCA9685_MODE1_RESTART | PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
-    safe_i2c_writeto_mem(pwm->i2c_obj, pwm->addr, PCA9685_MODE1, &restart_mode, 1);
+    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &restart_mode, 1);
     pwm->freq_hz = hz;
 }
 
@@ -91,15 +96,17 @@ mp_obj_t evo_get_pwm_singleton(void) {
     obj->addr = get_board_pwm_addr();
     obj->freq_hz = 0;
 
+    mp_obj_t i2c = get_board_I2CB();
+
     uint8_t mode1 = PCA9685_MODE1_ALLCALL;
-    safe_i2c_writeto_mem(obj->i2c_obj, obj->addr, PCA9685_MODE1, &mode1, 1);
+    safe_i2c_writeto_mem(i2c, obj->addr, PCA9685_MODE1, &mode1, 1);
     mp_hal_delay_ms(5);
 
     uint8_t mode2 = PCA9685_MODE2_OUTDRV;
-    safe_i2c_writeto_mem(obj->i2c_obj, obj->addr, PCA9685_MODE2, &mode2, 1);
+    safe_i2c_writeto_mem(i2c, obj->addr, PCA9685_MODE2, &mode2, 1);
 
     mode1 = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
-    safe_i2c_writeto_mem(obj->i2c_obj, obj->addr, PCA9685_MODE1, &mode1, 1);
+    safe_i2c_writeto_mem(i2c, obj->addr, PCA9685_MODE1, &mode1, 1);
     *root = MP_OBJ_FROM_PTR(obj);
     return *root;
 }
