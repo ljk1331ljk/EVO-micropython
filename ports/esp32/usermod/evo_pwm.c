@@ -23,25 +23,6 @@ static void safe_i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, c
     mp_call_method_n_kw(3, 0, dest);
 }
 
-static uint8_t i2c_readfrom_mem_u8(mp_obj_t i2c, uint16_t addr, uint8_t memaddr) {
-    mp_obj_t dest[5];
-    mp_load_method(i2c, MP_QSTR_readfrom_mem, dest);
-
-    dest[2] = mp_obj_new_int(addr);
-    dest[3] = mp_obj_new_int(memaddr);
-    dest[4] = mp_obj_new_int(1);
-
-    mp_obj_t data = mp_call_method_n_kw(3, 0, dest);
-
-    mp_buffer_info_t bufinfo;
-    mp_get_buffer_raise(data, &bufinfo, MP_BUFFER_READ);
-    if (bufinfo.len < 1) {
-        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("I2C read returned no data"));
-    }
-
-    return ((const uint8_t *)bufinfo.buf)[0];
-}
-
 void evo_pwm_set_raw(evo_pwm_obj_t *pwm, uint8_t ch, int on, int off) {
     uint8_t buf[4] = {
         (uint8_t)(on & 0xFF),
@@ -94,6 +75,7 @@ void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
 
     uint8_t restart_mode = PCA9685_MODE1_RESTART | PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
     safe_i2c_writeto_mem(pwm->i2c_obj, pwm->addr, PCA9685_MODE1, &restart_mode, 1);
+    pwm->freq_hz = hz;
 }
 
 mp_obj_t evo_get_pwm_singleton(void) {
@@ -107,6 +89,7 @@ mp_obj_t evo_get_pwm_singleton(void) {
     evo_pwm_obj_t *obj = mp_obj_malloc(evo_pwm_obj_t, &evo_pwm_type);
     obj->i2c_obj = i2cb;
     obj->addr = get_board_pwm_addr();
+    obj->freq_hz = 0;
 
     uint8_t mode1 = PCA9685_MODE1_ALLCALL;
     safe_i2c_writeto_mem(obj->i2c_obj, obj->addr, PCA9685_MODE1, &mode1, 1);
@@ -126,9 +109,7 @@ static mp_obj_t evo_pwm_freq(size_t n_args, const mp_obj_t *args) {
     evo_pwm_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 
     if (n_args == 1) {
-        uint8_t prescale = i2c_readfrom_mem_u8(self->i2c_obj, self->addr, PCA9685_PRESCALE);
-        float f = 25000000.0f / 4096.0f / ((float)prescale - 0.5f);
-        return mp_obj_new_int((int)f);
+        return mp_obj_new_int(self->freq_hz);
     }
 
     evo_pwm_set_freq(self, mp_obj_get_int(args[1]));

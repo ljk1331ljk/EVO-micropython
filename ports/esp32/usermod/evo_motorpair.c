@@ -71,6 +71,13 @@ static inline int normalize_stop_behavior_obj(mp_obj_t obj) {
     return normalize_stop_behavior_int(mp_obj_get_int(obj));
 }
 
+static evo_motor_obj_t *get_native_motor(mp_obj_t obj) {
+    if (!mp_obj_is_type(obj, &evo_motor_type)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("expected native EvoMotor"));
+    }
+    return (evo_motor_obj_t *)MP_OBJ_TO_PTR(obj);
+}
+
 static int normalize_acceleration_profile(mp_obj_t obj) {
     int profile = mp_obj_get_int(obj);
 
@@ -500,8 +507,8 @@ static mp_obj_t evo_motorpair_make_new(const mp_obj_type_t *type,
 
     evo_motorpair_obj_t *self = mp_obj_malloc(evo_motorpair_obj_t, type);
 
-    self->m1 = (evo_motor_obj_t *)MP_OBJ_TO_PTR(args[ARG_m1].u_obj);
-    self->m2 = (evo_motor_obj_t *)MP_OBJ_TO_PTR(args[ARG_m2].u_obj);
+    self->m1 = get_native_motor(args[ARG_m1].u_obj);
+    self->m2 = get_native_motor(args[ARG_m2].u_obj);
 
     self->startSpeed = 800;
     self->endSpeed = 800;

@@ -22,6 +22,7 @@ typedef struct _evo_pwm_obj_t {
     mp_obj_base_t base;
     mp_obj_t i2c_obj;
     uint16_t addr;
+    int freq_hz;
 } evo_pwm_obj_t;
 
 extern const mp_obj_type_t evo_pwm_type;

@@ -68,6 +68,13 @@ static inline int normalize_stop_behavior_obj(mp_obj_t obj) {
     return normalize_stop_behavior_int(mp_obj_get_int(obj));
 }
 
+static evo_motor_obj_t *get_native_motor(mp_obj_t obj) {
+    if (!mp_obj_is_type(obj, &evo_motor_type)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("expected native EvoMotor"));
+    }
+    return (evo_motor_obj_t *)MP_OBJ_TO_PTR(obj);
+}
+
 static int normalize_acceleration_profile(mp_obj_t obj) {
     int profile = mp_obj_get_int(obj);
     if (profile != EVO_ACCEL_NONE &&
@@ -576,10 +583,10 @@ static mp_obj_t evo_mecanum_make_new(const mp_obj_type_t *type,
 
     evo_mecanum_obj_t *self = mp_obj_malloc(evo_mecanum_obj_t, type);
 
-    self->frontLeft  = (evo_motor_obj_t *)MP_OBJ_TO_PTR(args[ARG_frontLeft].u_obj);
-    self->frontRight = (evo_motor_obj_t *)MP_OBJ_TO_PTR(args[ARG_frontRight].u_obj);
-    self->rearLeft   = (evo_motor_obj_t *)MP_OBJ_TO_PTR(args[ARG_rearLeft].u_obj);
-    self->rearRight  = (evo_motor_obj_t *)MP_OBJ_TO_PTR(args[ARG_rearRight].u_obj);
+    self->frontLeft  = get_native_motor(args[ARG_frontLeft].u_obj);
+    self->frontRight = get_native_motor(args[ARG_frontRight].u_obj);
+    self->rearLeft   = get_native_motor(args[ARG_rearLeft].u_obj);
+    self->rearRight  = get_native_motor(args[ARG_rearRight].u_obj);
 
     self->startSpeed = 800;
     self->endSpeed = 800;
