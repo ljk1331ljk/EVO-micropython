@@ -3,8 +3,12 @@
 #include "py/obj.h"
 #include "py/qstr.h"
 #include "py/mpstate.h"
+#include "py/nlr.h"
 
 #include "evo_pwm.h"
+
+#define EVO_PWM_I2C_RETRIES 3
+#define EVO_PWM_I2C_RETRY_DELAY_MS 2
 
 // Forward declaration for use before MP_DEFINE_CONST_OBJ_TYPE(...)
 extern const mp_obj_type_t evo_pwm_type;
@@ -14,14 +18,28 @@ static mp_obj_t get_board_I2CB(void);
 MP_REGISTER_ROOT_POINTER(mp_obj_t evo_pwm_singleton);
 
 static void safe_i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, const uint8_t *buf, size_t len) {
-    mp_obj_t dest[5];
-    mp_load_method(i2c, MP_QSTR_writeto_mem, dest);
+    for (int attempt = 0; attempt < EVO_PWM_I2C_RETRIES; attempt++) {
+        nlr_buf_t nlr;
+        if (nlr_push(&nlr) == 0) {
+            mp_obj_t dest[5];
+            mp_load_method(i2c, MP_QSTR_writeto_mem, dest);
 
-    dest[2] = mp_obj_new_int(addr);
-    dest[3] = mp_obj_new_int(memaddr);
-    dest[4] = mp_obj_new_bytes(buf, len);
+            dest[2] = mp_obj_new_int(addr);
+            dest[3] = mp_obj_new_int(memaddr);
+            dest[4] = mp_obj_new_bytes(buf, len);
 
-    mp_call_method_n_kw(3, 0, dest);
+            mp_call_method_n_kw(3, 0, dest);
+            nlr_pop();
+            return;
+        }
+
+        if (attempt + 1 >= EVO_PWM_I2C_RETRIES) {
+            nlr_jump(nlr.ret_val);
+        }
+
+        MICROPY_EVENT_POLL_HOOK;
+        mp_hal_delay_ms(EVO_PWM_I2C_RETRY_DELAY_MS);
+    }
 }
 
 void evo_pwm_set_raw(evo_pwm_obj_t *pwm, uint8_t ch, int on, int off) {
@@ -60,6 +78,9 @@ static uint16_t get_board_pwm_addr(void) {
 void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
     if (hz <= 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("freq must be > 0"));
+    }
+    if (pwm->freq_hz == hz) {
+        return;
     }
 
     int prescale = (int)(25000000.0f / 4096.0f / (float)hz + 0.5f);
