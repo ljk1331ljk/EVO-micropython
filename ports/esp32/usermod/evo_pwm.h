@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stdbool.h>
 #include "py/obj.h"
 
 // ---------- PCA9685-ish registers ----------
@@ -20,15 +21,15 @@
 
 typedef struct _evo_pwm_obj_t {
     mp_obj_base_t base;
-    mp_obj_t i2c_obj;
     uint16_t addr;
     int freq_hz;
+    bool valid;
 } evo_pwm_obj_t;
 
 extern const mp_obj_type_t evo_pwm_type;
-extern const mp_obj_fun_builtin_fixed_t evo_get_pwm_singleton_obj;
 
 mp_obj_t evo_get_pwm_singleton(void);
+void evo_pwm_clear_singleton(void);
 void evo_pwm_reset(evo_pwm_obj_t *pwm);
 void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz);
 void evo_pwm_set_raw(evo_pwm_obj_t *pwm, uint8_t ch, int on, int off);
