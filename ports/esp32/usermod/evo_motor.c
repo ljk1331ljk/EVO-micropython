@@ -13,7 +13,7 @@
 
 #define EVO_MOTOR_PWM_FREQ_HZ 2500
 
-MP_REGISTER_ROOT_POINTER(evo_motor_obj_t *evo_motor_obj_head);
+MP_REGISTER_ROOT_POINTER(struct _evo_motor_obj_t *evo_motor_obj_head);
 
 static const int8_t quad_table[16] = {
      0, -1, +1,  0,
