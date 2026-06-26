@@ -26,12 +26,12 @@ static void safe_i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, c
             mp_obj_t helper = mp_import_name(qstr_from_str("_evo_pwm"), mp_const_none, MP_OBJ_NEW_SMALL_INT(0));
             mp_obj_t write = mp_load_attr(helper, qstr_from_str("writeto_mem"));
 
-            mp_call_function_3(
-                write,
+            mp_obj_t args[] = {
                 mp_obj_new_int(addr),
                 mp_obj_new_int(memaddr),
-                mp_obj_new_bytes(buf, len)
-            );
+                mp_obj_new_bytes(buf, len),
+            };
+            mp_call_function_n_kw(write, 3, 0, args);
             nlr_pop();
             return;
         }
