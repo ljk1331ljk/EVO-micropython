@@ -15,6 +15,11 @@
 #include "evo_motorpair.h"
 #include "evo_mecanum.h"
 
+void evo_soft_reset_cleanup(void) {
+    evo_motor_deinit_all();
+    evo_pwm_clear_singleton();
+}
+
 // ============================================================================
 // Shared Evo config
 // ============================================================================
@@ -433,6 +438,8 @@ static bool save_download_value(qstr key, mp_obj_t value) {
 // ============================================================================
 
 static mp_obj_t evo_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
+    evo_pwm_clear_singleton();
+
     enum {
         ARG_start_download,
         ARG_start_ble,
@@ -876,7 +883,7 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_is_released), MP_ROM_PTR(&evo_is_released_obj) },
     { MP_ROM_QSTR(MP_QSTR_is_bumped), MP_ROM_PTR(&evo_is_bumped_obj) },
 
-    { MP_ROM_QSTR(MP_QSTR_EVOPWMDriver), MP_ROM_PTR(&evo_get_pwm_singleton_obj) },
+    { MP_ROM_QSTR(MP_QSTR_EVOPWMDriver), MP_ROM_PTR(&evo_pwm_type) },
 
     { MP_ROM_QSTR(MP_QSTR_EvoMotor), MP_ROM_PTR(&evo_motor_type) },
     { MP_ROM_QSTR(MP_QSTR_EvoMotorPair), MP_ROM_PTR(&evo_motorpair_type) },

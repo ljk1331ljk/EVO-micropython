@@ -65,6 +65,9 @@
 #include "modmachine.h"
 #include "modnetwork.h"
 
+MP_WEAK void evo_soft_reset_cleanup(void) {
+}
+
 #if MICROPY_BLUETOOTH_NIMBLE
 #include "extmod/modbluetooth.h"
 #endif
@@ -180,6 +183,8 @@ soft_reset:
     }
 
 soft_reset_exit:
+
+    evo_soft_reset_cleanup();
 
     #if MICROPY_BLUETOOTH_NIMBLE
     mp_bluetooth_deinit();

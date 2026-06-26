@@ -14,8 +14,15 @@
 extern const mp_obj_type_t evo_pwm_type;
 static mp_obj_t get_board_I2CB(void);
 
-// GC-rooted singleton
+// Kept only so older images/state layouts can be cleared during soft reset.
+// EVOPWMDriver objects are allocated fresh and this root is never reused.
 MP_REGISTER_ROOT_POINTER(mp_obj_t evo_pwm_singleton);
+
+static void evo_pwm_check(evo_pwm_obj_t *pwm) {
+    if (pwm == NULL || !MP_OBJ_IS_TYPE(MP_OBJ_FROM_PTR(pwm), &evo_pwm_type) || !pwm->valid) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("EVOPWMDriver is not initialised"));
+    }
+}
 
 static void safe_i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, const uint8_t *buf, size_t len) {
     (void)i2c;
@@ -46,6 +53,8 @@ static void safe_i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, c
 }
 
 void evo_pwm_set_raw(evo_pwm_obj_t *pwm, uint8_t ch, int on, int off) {
+    evo_pwm_check(pwm);
+
     uint8_t buf[4] = {
         (uint8_t)(on & 0xFF),
         (uint8_t)((on >> 8) & 0xFF),
@@ -78,7 +87,17 @@ static uint16_t get_board_pwm_addr(void) {
     return (uint16_t)mp_obj_get_int(mp_load_attr(pins, qstr_from_str("PCA9685PW_ADDRESS")));
 }
 
+static mp_obj_t evo_pwm_make_driver_obj(void) {
+    evo_pwm_obj_t *obj = mp_obj_malloc(evo_pwm_obj_t, &evo_pwm_type);
+    obj->addr = get_board_pwm_addr();
+    obj->freq_hz = 0;
+    obj->valid = true;
+    return MP_OBJ_FROM_PTR(obj);
+}
+
 void evo_pwm_reset(evo_pwm_obj_t *pwm) {
+    evo_pwm_check(pwm);
+
     mp_obj_t i2c = get_board_I2CB();
 
     uint8_t mode2 = PCA9685_MODE2_OUTDRV;
@@ -92,6 +111,8 @@ void evo_pwm_reset(evo_pwm_obj_t *pwm) {
 }
 
 void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
+    evo_pwm_check(pwm);
+
     if (hz <= 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("freq must be > 0"));
     }
@@ -122,21 +143,29 @@ void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
 
 mp_obj_t evo_get_pwm_singleton(void) {
     mp_obj_t *root = &MP_STATE_PORT(evo_pwm_singleton);
-    if (*root != MP_OBJ_NULL) {
-        return *root;
+    if (*root != MP_OBJ_NULL && MP_OBJ_IS_TYPE(*root, &evo_pwm_type)) {
+        ((evo_pwm_obj_t *)MP_OBJ_TO_PTR(*root))->valid = false;
     }
+    *root = MP_OBJ_NULL;
 
-    mp_obj_t i2cb = get_board_I2CB();
-
-    evo_pwm_obj_t *obj = mp_obj_malloc(evo_pwm_obj_t, &evo_pwm_type);
-    obj->i2c_obj = i2cb;
-    obj->addr = get_board_pwm_addr();
-    obj->freq_hz = 0;
-
-    *root = MP_OBJ_FROM_PTR(obj);
-    return *root;
+    return evo_pwm_make_driver_obj();
 }
-MP_DEFINE_CONST_FUN_OBJ_0(evo_get_pwm_singleton_obj, evo_get_pwm_singleton);
+
+void evo_pwm_clear_singleton(void) {
+    mp_obj_t *root = &MP_STATE_PORT(evo_pwm_singleton);
+    if (*root != MP_OBJ_NULL && MP_OBJ_IS_TYPE(*root, &evo_pwm_type)) {
+        evo_pwm_obj_t *pwm = MP_OBJ_TO_PTR(*root);
+        pwm->valid = false;
+    }
+    *root = MP_OBJ_NULL;
+}
+
+static mp_obj_t evo_pwm_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+    (void)type;
+    (void)args;
+    mp_arg_check_num(n_args, n_kw, 0, 0, false);
+    return evo_get_pwm_singleton();
+}
 
 static mp_obj_t evo_pwm_reset_method(mp_obj_t self_in) {
     evo_pwm_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -187,5 +216,6 @@ MP_DEFINE_CONST_OBJ_TYPE(
     evo_pwm_type,
     MP_QSTR_EVOPWMDriver,
     MP_TYPE_FLAG_NONE,
+    make_new, evo_pwm_make_new,
     locals_dict, &evo_pwm_locals_dict
 );
