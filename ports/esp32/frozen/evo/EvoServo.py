@@ -8,6 +8,7 @@
 from micropython import const
 from machine import Pin, PWM
 import pins
+import evo
 
 
 # === Global Servo Types ===
