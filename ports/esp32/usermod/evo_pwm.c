@@ -5,6 +5,8 @@
 #include "py/mpstate.h"
 #include "py/nlr.h"
 
+#include <string.h>
+
 #include "evo_pwm.h"
 
 #define EVO_PWM_I2C_RETRIES 3
@@ -43,6 +45,43 @@ static void safe_i2c_writeto_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, c
                 mp_obj_new_bytes(buf, len),
             };
             mp_call_function_n_kw(write, 3, 0, args);
+            nlr_pop();
+            return;
+        }
+
+        if (attempt + 1 >= EVO_PWM_I2C_RETRIES) {
+            nlr_jump(nlr.ret_val);
+        }
+
+        MICROPY_EVENT_POLL_HOOK;
+        mp_hal_delay_ms(EVO_PWM_I2C_RETRY_DELAY_MS);
+    }
+}
+
+static void safe_i2c_readfrom_mem(mp_obj_t i2c, uint16_t addr, uint8_t memaddr, uint8_t *buf, size_t len) {
+    (void)i2c;
+
+    for (int attempt = 0; attempt < EVO_PWM_I2C_RETRIES; attempt++) {
+        nlr_buf_t nlr;
+        if (nlr_push(&nlr) == 0) {
+            mp_obj_t helper = mp_import_name(qstr_from_str("_evo_pwm"), mp_const_none, MP_OBJ_NEW_SMALL_INT(0));
+            mp_obj_t read = mp_load_attr(helper, qstr_from_str("readfrom_mem"));
+
+            mp_obj_t args[] = {
+                mp_obj_new_int(addr),
+                mp_obj_new_int(memaddr),
+                mp_obj_new_int(len),
+            };
+            mp_obj_t data = mp_call_function_n_kw(read, 3, 0, args);
+
+            mp_buffer_info_t bufinfo;
+            mp_get_buffer_raise(data, &bufinfo, MP_BUFFER_READ);
+            if (bufinfo.len < len) {
+                nlr_pop();
+                mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("short I2C read"));
+            }
+
+            memcpy(buf, bufinfo.buf, len);
             nlr_pop();
             return;
         }
@@ -104,10 +143,8 @@ void evo_pwm_reset(evo_pwm_obj_t *pwm) {
 
     mp_obj_t i2c = get_board_I2CB();
 
-    uint8_t mode2 = PCA9685_MODE2_OUTDRV;
-    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE2, &mode2, 1);
-
-    uint8_t mode1 = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
+    // Match EVO Arduino/Adafruit reset(): MODE1 becomes 0x80 and MODE2 is unchanged.
+    uint8_t mode1 = PCA9685_MODE1_RESTART;
     safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &mode1, 1);
     mp_hal_delay_ms(5);
 
@@ -130,17 +167,20 @@ void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
 
     mp_obj_t i2c = get_board_I2CB();
 
-    uint8_t sleep_mode = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL | PCA9685_MODE1_SLEEP;
-    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &sleep_mode, 1);
+    uint8_t oldmode;
+    safe_i2c_readfrom_mem(i2c, pwm->addr, PCA9685_MODE1, &oldmode, 1);
+
+    uint8_t newmode = (oldmode & (uint8_t)~PCA9685_MODE1_RESTART) | PCA9685_MODE1_SLEEP;
+    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &newmode, 1);
 
     uint8_t p = (uint8_t)prescale;
     safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_PRESCALE, &p, 1);
 
-    uint8_t wake_mode = PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
-    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &wake_mode, 1);
+    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &oldmode, 1);
     mp_hal_delay_ms(5);
 
-    uint8_t restart_mode = PCA9685_MODE1_RESTART | PCA9685_MODE1_AI | PCA9685_MODE1_ALLCALL;
+    // After freq(2500), MODE1 is oldmode | 0x80 | 0x20, typically 0xA0 if oldmode was 0x80.
+    uint8_t restart_mode = oldmode | PCA9685_MODE1_RESTART | PCA9685_MODE1_AI;
     safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &restart_mode, 1);
     pwm->freq_hz = hz;
 }
