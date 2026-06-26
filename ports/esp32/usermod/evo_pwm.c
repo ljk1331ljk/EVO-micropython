@@ -10,6 +10,10 @@
 #define EVO_PWM_I2C_RETRIES 3
 #define EVO_PWM_I2C_RETRY_DELAY_MS 2
 
+// EVO boards use the PCA9685 internal oscillator; EXTCLK is not connected.
+// Intentionally assume 27 MHz to match the EVO Arduino implementation.
+#define EVO_PWM_OSC_FREQ_HZ 27000000.0f
+
 // Forward declaration for use before MP_DEFINE_CONST_OBJ_TYPE(...)
 extern const mp_obj_type_t evo_pwm_type;
 static mp_obj_t get_board_I2CB(void);
@@ -120,7 +124,7 @@ void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
         return;
     }
 
-    int prescale = (int)(25000000.0f / 4096.0f / (float)hz + 0.5f) - 1;
+    int prescale = (int)(EVO_PWM_OSC_FREQ_HZ / 4096.0f / (float)hz + 0.5f) - 1;
     if (prescale < 3) prescale = 3;
     if (prescale > 255) prescale = 255;
 

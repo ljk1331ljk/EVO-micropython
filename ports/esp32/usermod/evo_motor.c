@@ -11,7 +11,7 @@
 
 #include "evo_motor.h"
 
-#define EVO_MOTOR_PWM_FREQ_HZ 3500
+#define EVO_MOTOR_PWM_FREQ_HZ 2500
 
 MP_REGISTER_ROOT_POINTER(struct _evo_motor_obj_t *evo_motor_obj_head);
 
