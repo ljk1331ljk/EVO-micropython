@@ -509,9 +509,9 @@ jobs:
             <body>
               <main>
                 <h1>EVO MicroPython Firmware</h1>
-                <p>Stable firmware versions and the latest beta build.</p>
+                <p>Stable firmware versions and beta builds.</p>
                 <section>
-                  <h2>Latest Beta</h2>
+                  <h2>Beta Versions</h2>
                   <div id="beta" class="empty">No beta firmware published yet.</div>
                 </section>
                 <section>
@@ -529,9 +529,10 @@ jobs:
                     const stable = document.getElementById('stable');
                     const beta = document.getElementById('beta');
 
-                    if (index.latest_beta) {
+                    const betaItems = index.beta || (index.latest_beta ? [index.latest_beta] : []);
+                    if (betaItems.length > 0) {
                       beta.className = '';
-                      beta.innerHTML = '<table><thead><tr><th>Version</th><th>Generated</th><th>Boards</th><th>Manifest</th></tr></thead><tbody>' + renderRow(index.latest_beta) + '</tbody></table>';
+                      beta.innerHTML = '<table><thead><tr><th>Version</th><th>Generated</th><th>Boards</th><th>Manifest</th></tr></thead><tbody>' + betaItems.map(renderRow).join('') + '</tbody></table>';
                     }
 
                     if (index.stable.length > 0) {
@@ -586,9 +587,9 @@ jobs:
           repo="${GITHUB_REPOSITORY#*/}"
           pages_root="https://${owner}.github.io/${repo}"
           stable_entries="${RUNNER_TEMP}/stable-firmware-index.jsonl"
-          beta_entry="${RUNNER_TEMP}/beta-firmware-index.jsonl"
+          beta_entries="${RUNNER_TEMP}/beta-firmware-index.jsonl"
           : > "${stable_entries}"
-          printf 'null\n' > "${beta_entry}"
+          : > "${beta_entries}"
 
           if [ -d firmware ]; then
             while IFS= read -r manifest; do
@@ -605,34 +606,40 @@ jobs:
                     generated_at,
                     manifest_url: $manifest_url,
                     devices: [.devices[] | {id, board, product, variant, capabilities}]
-                  }' "${manifest}" >> "${stable_entries}" || true
+                   }' "${manifest}" >> "${stable_entries}" || true
+              jq -c \
+                --arg manifest_url "${pages_root}/firmware/${dir}/firmware-manifest.json" \
+                'select((.channel // "stable") == "beta")
+                 | {
+                    version,
+                    release_tag,
+                    generated_at,
+                    manifest_url: $manifest_url,
+                    devices: [.devices[] | {id, board, product, variant, capabilities}]
+                  }' "${manifest}" >> "${beta_entries}" || true
             done < <(find firmware -mindepth 2 -maxdepth 2 -name firmware-manifest.json | sort)
           fi
 
-          if [ -f firmware/beta/firmware-manifest.json ]; then
-            beta_tmp="${RUNNER_TEMP}/beta-firmware-index.tmp"
-            jq -c \
-              --arg manifest_url "${pages_root}/firmware/beta/latest.json" \
-              'select((.channel // "stable") == "beta")
-               | {
-                  version,
-                  release_tag,
-                  generated_at,
-                  manifest_url: $manifest_url,
-                  devices: [.devices[] | {id, board, product, variant, capabilities}]
-                }' firmware/beta/firmware-manifest.json > "${beta_tmp}" || true
-            if [ -s "${beta_tmp}" ]; then
-              cp "${beta_tmp}" "${beta_entry}"
-            fi
-          fi
+          mkdir -p firmware/beta
+          jq -s '
+            (sort_by(.generated_at) | reverse) as $firmware
+            | {
+              schema_version: 1,
+              channel: "beta",
+              firmware: $firmware,
+              latest: ($firmware[0] // null)
+            }' "${beta_entries}" > firmware/beta/index.json
 
           jq -s \
-            --slurpfile beta "${beta_entry}" \
-            '{
+            --slurpfile beta "${beta_entries}" \
+            '($beta | sort_by(.generated_at) | reverse) as $beta_firmware
+            | (sort_by(.generated_at) | reverse) as $stable_firmware
+            | {
               schema_version: 1,
-              stable: (sort_by(.generated_at) | reverse),
-              latest_stable: ((sort_by(.generated_at) | reverse)[0] // null),
-              latest_beta: ($beta[0] // null)
+              stable: $stable_firmware,
+              beta: $beta_firmware,
+              latest_stable: ($stable_firmware[0] // null),
+              latest_beta: ($beta_firmware[0] // null)
             }' "${stable_entries}" > firmware/index.json
 
           git add -A
