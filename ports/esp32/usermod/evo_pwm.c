@@ -16,6 +16,14 @@
 // Intentionally assume 27 MHz to match the EVO Arduino implementation.
 #define EVO_PWM_OSC_FREQ_HZ 27000000.0f
 
+// EVOPWMDriver.freq_hz is object-local state for the Python-visible driver.
+// The PCA9685 is shared hardware, so track the last frequency actually
+// programmed into the chip separately. This keeps motor run/brake/coast calls
+// able to restore the motor frequency after another feature changes it, while
+// avoiding repeated sleep/prescale/wake/restart cycles when the hardware is
+// already at that frequency.
+static int s_evo_pwm_hw_freq_hz = 0;
+
 // Forward declaration for use before MP_DEFINE_CONST_OBJ_TYPE(...)
 extern const mp_obj_type_t evo_pwm_type;
 static mp_obj_t get_board_I2CB(void);
@@ -149,6 +157,7 @@ void evo_pwm_reset(evo_pwm_obj_t *pwm) {
     mp_hal_delay_ms(5);
 
     pwm->freq_hz = 0;
+    s_evo_pwm_hw_freq_hz = 0;
 }
 
 void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
@@ -157,7 +166,9 @@ void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
     if (hz <= 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("freq must be > 0"));
     }
-    if (pwm->freq_hz == hz) {
+
+    if (s_evo_pwm_hw_freq_hz == hz) {
+        pwm->freq_hz = hz;
         return;
     }
 
@@ -182,6 +193,7 @@ void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
     // After freq(2500), MODE1 is oldmode | 0x80 | 0x20, typically 0xA0 if oldmode was 0x80.
     uint8_t restart_mode = oldmode | PCA9685_MODE1_RESTART | PCA9685_MODE1_AI;
     safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &restart_mode, 1);
+    s_evo_pwm_hw_freq_hz = hz;
     pwm->freq_hz = hz;
 }
 
@@ -202,6 +214,7 @@ void evo_pwm_clear_singleton(void) {
         pwm->valid = false;
     }
     *root = MP_OBJ_NULL;
+    s_evo_pwm_hw_freq_hz = 0;
 }
 
 static mp_obj_t evo_pwm_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
