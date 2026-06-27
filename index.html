@@ -95,9 +95,9 @@
   <body>
     <main>
       <h1>EVO MicroPython Firmware</h1>
-      <p>Stable firmware versions and the latest beta build.</p>
+      <p>Stable firmware versions and beta builds.</p>
       <section>
-        <h2>Latest Beta</h2>
+        <h2>Beta Versions</h2>
         <div id="beta" class="empty">No beta firmware published yet.</div>
       </section>
       <section>
@@ -115,9 +115,10 @@
           const stable = document.getElementById('stable');
           const beta = document.getElementById('beta');
 
-          if (index.latest_beta) {
+          const betaItems = index.beta || (index.latest_beta ? [index.latest_beta] : []);
+          if (betaItems.length > 0) {
             beta.className = '';
-            beta.innerHTML = '<table><thead><tr><th>Version</th><th>Generated</th><th>Boards</th><th>Manifest</th></tr></thead><tbody>' + renderRow(index.latest_beta) + '</tbody></table>';
+            beta.innerHTML = '<table><thead><tr><th>Version</th><th>Generated</th><th>Boards</th><th>Manifest</th></tr></thead><tbody>' + betaItems.map(renderRow).join('') + '</tbody></table>';
           }
 
           if (index.stable.length > 0) {
