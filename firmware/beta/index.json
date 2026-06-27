@@ -3,6 +3,40 @@
   "channel": "beta",
   "firmware": [
     {
+      "version": "v1.1.0-beta.36",
+      "release_tag": "v1.1.0-beta.36",
+      "generated_at": "2026-06-27T16:22:23Z",
+      "manifest_url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.36/firmware-manifest.json",
+      "devices": [
+        {
+          "id": "EVOX1E",
+          "board": "EVOX1E",
+          "product": "EVOX1E",
+          "variant": "SPIRAM_OCT",
+          "capabilities": {
+            "multiple_programs": {
+              "supported": true,
+              "root": "/programs",
+              "main_file": "main.py"
+            }
+          }
+        },
+        {
+          "id": "EVOX1P",
+          "board": "EVOX1P",
+          "product": "EVOX1P",
+          "variant": "SPIRAM_OCT",
+          "capabilities": {
+            "multiple_programs": {
+              "supported": true,
+              "root": "/programs",
+              "main_file": "main.py"
+            }
+          }
+        }
+      ]
+    },
+    {
       "version": "v1.1.0-beta.35",
       "release_tag": "v1.1.0-beta.35",
       "generated_at": "2026-06-27T09:33:31Z",
@@ -1046,10 +1080,10 @@
     }
   ],
   "latest": {
-    "version": "v1.1.0-beta.35",
-    "release_tag": "v1.1.0-beta.35",
-    "generated_at": "2026-06-27T09:33:31Z",
-    "manifest_url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.35/firmware-manifest.json",
+    "version": "v1.1.0-beta.36",
+    "release_tag": "v1.1.0-beta.36",
+    "generated_at": "2026-06-27T16:22:23Z",
+    "manifest_url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.36/firmware-manifest.json",
     "devices": [
       {
         "id": "EVOX1E",
