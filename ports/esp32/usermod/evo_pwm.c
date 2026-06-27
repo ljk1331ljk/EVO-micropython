@@ -18,11 +18,14 @@
 
 // EVOPWMDriver.freq_hz is object-local state for the Python-visible driver.
 // The PCA9685 is shared hardware, so track the last frequency actually
-// programmed into the chip separately. This keeps motor run/brake/coast calls
-// able to restore the motor frequency after another feature changes it, while
-// avoiding repeated sleep/prescale/wake/restart cycles when the hardware is
-// already at that frequency.
+// programmed into the chip separately. The valid flag is cleared when this
+// module resets or forgets PWM hardware state, so motor run/brake/coast calls
+// do not skip the wake/restart setup after a reset. Once a frequency has been
+// programmed successfully, repeated motor calls avoid the expensive
+// sleep/prescale/wake/restart cycle when the hardware is already at that
+// frequency.
 static int s_evo_pwm_hw_freq_hz = 0;
+static bool s_evo_pwm_hw_freq_valid = false;
 
 // Forward declaration for use before MP_DEFINE_CONST_OBJ_TYPE(...)
 extern const mp_obj_type_t evo_pwm_type;
@@ -158,6 +161,7 @@ void evo_pwm_reset(evo_pwm_obj_t *pwm) {
 
     pwm->freq_hz = 0;
     s_evo_pwm_hw_freq_hz = 0;
+    s_evo_pwm_hw_freq_valid = false;
 }
 
 void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
@@ -167,7 +171,7 @@ void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
         mp_raise_ValueError(MP_ERROR_TEXT("freq must be > 0"));
     }
 
-    if (s_evo_pwm_hw_freq_hz == hz) {
+    if (s_evo_pwm_hw_freq_valid && s_evo_pwm_hw_freq_hz == hz) {
         pwm->freq_hz = hz;
         return;
     }
@@ -187,13 +191,19 @@ void evo_pwm_set_freq(evo_pwm_obj_t *pwm, int hz) {
     uint8_t p = (uint8_t)prescale;
     safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_PRESCALE, &p, 1);
 
-    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &oldmode, 1);
+    uint8_t wake_mode =
+        (oldmode & (uint8_t)~(PCA9685_MODE1_RESTART | PCA9685_MODE1_SLEEP)) |
+        PCA9685_MODE1_AI |
+        PCA9685_MODE1_ALLCALL;
+    safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &wake_mode, 1);
     mp_hal_delay_ms(5);
 
-    // After freq(2500), MODE1 is oldmode | 0x80 | 0x20, typically 0xA0 if oldmode was 0x80.
-    uint8_t restart_mode = oldmode | PCA9685_MODE1_RESTART | PCA9685_MODE1_AI;
+    // Clear SLEEP before restart. If MODE1 was read while the PCA9685 was
+    // asleep, preserving oldmode would keep PWM outputs disabled.
+    uint8_t restart_mode = wake_mode | PCA9685_MODE1_RESTART;
     safe_i2c_writeto_mem(i2c, pwm->addr, PCA9685_MODE1, &restart_mode, 1);
     s_evo_pwm_hw_freq_hz = hz;
+    s_evo_pwm_hw_freq_valid = true;
     pwm->freq_hz = hz;
 }
 
@@ -215,6 +225,7 @@ void evo_pwm_clear_singleton(void) {
     }
     *root = MP_OBJ_NULL;
     s_evo_pwm_hw_freq_hz = 0;
+    s_evo_pwm_hw_freq_valid = false;
 }
 
 static mp_obj_t evo_pwm_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
