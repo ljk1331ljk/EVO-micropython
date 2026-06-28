@@ -3,7 +3,7 @@
 # Unified pulse convention:
 # - All pulse values are stored in microseconds as if using 50Hz servo timing.
 # - GPIO mode outputs those pulses directly at 50Hz.
-# - SERVO1..SERVO8 use the Evo PWM driver at 100Hz, so pulse widths are halved before output.
+# - SERVO1..SERVO8 use the Evo PWM driver at the standard 50Hz servo frequency.
 
 from micropython import const
 from machine import Pin, PWM
@@ -47,7 +47,7 @@ class EvoServo:
                 raise ValueError("invalid servo port")
 
             self._drv = evo.EVOPWMDriver()
-            self._drv.freq(100)
+            self._drv.freq(50)
 
         else:
             if p < 0 or p > 50:
@@ -154,14 +154,14 @@ class EvoServo:
         self._pwm.duty(duty)
 
     def _write_servo_port_us(self, pulse_us):
-        # Servo ports run at 100Hz, but stored pulse is based on 50Hz convention.
-        # Halve pulse width before sending.
-        off = int(pulse_us) // 2
+        # Servo ports operate at the standard 50Hz.
+        # Convert pulse width in microseconds into PCA9685 counts.
+        off = (int(pulse_us) * 4096) // 20000
         if off < 0:
             off = 0
         elif off > 4096:
             off = 4096
-        self._drv.freq(100)
+        self._drv.freq(50)
         self._drv.pwm(self._ch, 0, off)
 
     def write(self, pos):
