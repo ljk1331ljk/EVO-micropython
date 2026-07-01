@@ -16,8 +16,6 @@
 #include "evo_mecanum.h"
 
 void evo_soft_reset_cleanup(void) {
-    evo_motor_deinit_all();
-    evo_pwm_clear_singleton();
 }
 
 // ============================================================================
@@ -438,8 +436,6 @@ static bool save_download_value(qstr key, mp_obj_t value) {
 // ============================================================================
 
 static mp_obj_t evo_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
-    evo_pwm_clear_singleton();
-
     enum {
         ARG_start_download,
         ARG_start_ble,
