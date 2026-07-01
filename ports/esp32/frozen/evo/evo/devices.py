@@ -38,11 +38,8 @@ class Motor:
             return None
         return method(*args)
 
-    def run(self, speed):
-        method = getattr(self._motor, "runSpeed", None)
-        if method is not None:
-            return method(speed)
-        return self._motor.run(speed)
+    def run(self, power):
+        return self.dc(power)
 
     def dc(self, power):
         method = getattr(self._motor, "runPower", None)

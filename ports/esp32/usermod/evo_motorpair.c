@@ -273,8 +273,8 @@ static void pair_apply_speed_and_sync(evo_motorpair_obj_t *self, evo_pair_exec_t
         st->lSpeed = (int)(st->speed * st->leftPowerRatio) * st->leftDir;
     }
 
-    evo_motor_run_speed_control_c(self->m1, (mp_float_t)st->lSpeed);
-    evo_motor_run_speed_control_c(self->m2, (mp_float_t)st->rSpeed);
+    evo_motor_run_power_c(self->m1, st->lSpeed);
+    evo_motor_run_power_c(self->m2, st->rSpeed);
 }
 
 static void pair_update_encoder_state(evo_motorpair_obj_t *self, evo_pair_exec_t *st) {
@@ -624,20 +624,20 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_movePower_obj, 3, 3, mp_movePower)
 static mp_obj_t mp_moveSpeed(size_t n_args, const mp_obj_t *args) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     self->busy = false;
-    evo_motor_run_speed_control_c(self->m1, (mp_float_t)mp_obj_get_float(args[1]));
-    evo_motor_run_speed_control_c(self->m2, (mp_float_t)mp_obj_get_float(args[2]));
+    evo_motor_run_power_c(self->m1, obj_get_rounded_int(args[1]));
+    evo_motor_run_power_c(self->m2, obj_get_rounded_int(args[2]));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_moveSpeed_obj, 3, 3, mp_moveSpeed);
 
-// Backward-compatible alias. move() is speed-based DPS control.
+// Backward-compatible alias. move() applies raw PWM power.
 static mp_obj_t mp_move(size_t n_args, const mp_obj_t *args) {
     return mp_moveSpeed(n_args, args);
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_move_obj, 3, 3, mp_move);
 
-// moveDegrees/runDegrees(leftSpeed, rightSpeed, degrees[, stopBehavior])
-// The encoder synchronization keeps both motors following the requested speed ratio.
+// moveDegrees/runDegrees(leftPower, rightPower, degrees[, stopBehavior])
+// The encoder synchronization keeps both motors following the requested power ratio.
 static mp_obj_t mp_moveDegrees(size_t n_args, const mp_obj_t *args) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     int leftSpeed = obj_get_rounded_int(args[1]);

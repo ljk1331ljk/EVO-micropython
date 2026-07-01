@@ -418,6 +418,7 @@ void evo_motor_run_power_c(evo_motor_obj_t *m, int power) {
     evo_motor_check(m);
 
     int s = clamp_power(power);
+    m->speed_power = s;
 
     if (s != 0) {
         evo_motor_wake_drivers();
@@ -479,12 +480,6 @@ int32_t evo_motor_get_angle_deg(evo_motor_obj_t *m) {
 }
 
 
-
-static inline int sign_from_float(mp_float_t v) {
-    if (v > 0) return 1;
-    if (v < 0) return -1;
-    return 0;
-}
 
 static void evo_motor_reset_speed_state(evo_motor_obj_t *m) {
     m->speed_last_position = m->position;
@@ -562,67 +557,7 @@ void evo_motor_set_speed_limits_c(evo_motor_obj_t *m, int min_power, int max_pow
 
 void evo_motor_run_speed_control_c(evo_motor_obj_t *m, mp_float_t target_dps) {
     evo_motor_check(m);
-
-    if (target_dps == 0) {
-        m->speed_integral = 0;
-        m->speed_last_error = 0;
-        m->speed_power = 0;
-        evo_motor_update_speed_c(m);
-        motor_stop_by_behaviour(m);
-        return;
-    }
-
-    evo_motor_update_speed_c(m);
-
-    mp_float_t dt = m->speed_dt;
-    if (dt <= 0) {
-        dt = 0.01f;
-    }
-
-    mp_float_t error = target_dps - m->speed_dps;
-
-    m->speed_integral += error * dt;
-
-    // Anti-windup. The value is intentionally conservative because power is limited to EVO_PWM_MAX.
-    if (m->speed_integral > m->speed_integral_limit) {
-        m->speed_integral = m->speed_integral_limit;
-    } else if (m->speed_integral < -m->speed_integral_limit) {
-        m->speed_integral = -m->speed_integral_limit;
-    }
-
-    mp_float_t derivative = (error - m->speed_last_error) / dt;
-    m->speed_last_error = error;
-
-    int dir = sign_from_float(target_dps);
-
-    // Feed-forward start power overcomes static friction.
-    // PID then adds or subtracts power to reach the requested motor speed in degrees per second.
-    mp_float_t pid =
-        (m->speed_kp * error) +
-        (m->speed_ki * m->speed_integral) +
-        (m->speed_kd * derivative);
-
-    int power = (int)((mp_float_t)(dir * m->speed_min_power) + pid);
-
-    // Keep the command predictable for simple motor-pair movement.
-    if (dir > 0 && power < 0 && m->speed_cps >= 0) {
-        power = 0;
-    } else if (dir < 0 && power > 0 && m->speed_cps <= 0) {
-        power = 0;
-    }
-
-    if (power > m->speed_max_power) {
-        power = m->speed_max_power;
-    } else if (power < -m->speed_max_power) {
-        power = -m->speed_max_power;
-    }
-
-    if (power != 0 && fabsf((float)power) < (mp_float_t)m->speed_min_power) {
-        power = dir * m->speed_min_power;
-    }
-
-    m->speed_power = power;
-    evo_motor_run_power_c(m, power);
+    evo_motor_run_power_c(m, (int)roundf((float)target_dps));
 }
 
 static mp_obj_t evo_motor_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
@@ -735,82 +670,79 @@ static mp_obj_t evo_motor_setStopBehavior(mp_obj_t self_in, mp_obj_t beh_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(evo_motor_setStopBehavior_obj, evo_motor_setStopBehavior);
 
-static mp_obj_t evo_motor_runTime(mp_obj_t self_in, mp_obj_t dps_in, mp_obj_t seconds_in) {
+static mp_obj_t evo_motor_runTime(mp_obj_t self_in, mp_obj_t power_in, mp_obj_t seconds_in) {
     evo_motor_obj_t *m = MP_OBJ_TO_PTR(self_in);
 
-    mp_float_t target_dps = mp_obj_get_float(dps_in);
+    int power = mp_obj_get_int(power_in);
     mp_float_t secs = mp_obj_get_float(seconds_in);
     if (secs < 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("seconds must be >= 0"));
     }
 
-    if (target_dps == 0 || secs == 0) {
-        evo_motor_run_speed_control_c(m, 0);
+    if (power == 0 || secs == 0) {
+        evo_motor_run_power_c(m, 0);
         return mp_const_none;
     }
 
     evo_motor_cancel_hold(m);
-    evo_motor_reset_speed_state(m);
 
     uint32_t dur_ms = (uint32_t)(secs * 1000.0f + 0.5f);
     uint32_t start = mp_hal_ticks_ms();
     while ((uint32_t)(mp_hal_ticks_ms() - start) < dur_ms) {
-        evo_motor_run_speed_control_c(m, target_dps);
+        evo_motor_run_power_c(m, power);
         MICROPY_EVENT_POLL_HOOK;
         mp_hal_delay_ms(10);
     }
 
-    evo_motor_run_speed_control_c(m, 0);
+    evo_motor_run_power_c(m, 0);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_3(evo_motor_runTime_obj, evo_motor_runTime);
 
 
-static mp_obj_t evo_motor_runAngle(mp_obj_t self_in, mp_obj_t dps_in, mp_obj_t angle_in) {
+static mp_obj_t evo_motor_runAngle(mp_obj_t self_in, mp_obj_t power_in, mp_obj_t angle_in) {
     evo_motor_obj_t *m = MP_OBJ_TO_PTR(self_in);
 
-    mp_float_t dps = mp_obj_get_float(dps_in);
-    if (dps < 0) {
-        dps = -dps;
+    int power = mp_obj_get_int(power_in);
+    if (power < 0) {
+        power = -power;
     }
-
     int angle = mp_obj_get_int(angle_in);
-    if (angle == 0 || dps == 0) {
-        evo_motor_run_speed_control_c(m, 0);
+    if (angle == 0 || power == 0) {
+        evo_motor_run_power_c(m, 0);
         return mp_const_none;
     }
 
     evo_motor_cancel_hold(m);
-    evo_motor_reset_speed_state(m);
 
     int dir = (angle > 0) ? 1 : -1;
     int abs_angle = (angle > 0) ? angle : -angle;
 
     int32_t ticks = (int32_t)(((int64_t)abs_angle * (int64_t)m->cpr + 180) / 360);
     if (ticks <= 0) {
-        evo_motor_run_speed_control_c(m, 0);
+        evo_motor_run_power_c(m, 0);
         return mp_const_none;
     }
 
     int32_t start_pos = m->position;
     int32_t target = start_pos + (int32_t)dir * ticks;
-    mp_float_t target_dps = (mp_float_t)dir * dps;
+    int target_power = dir * power;
 
     if (dir > 0) {
         while (m->position < target) {
-            evo_motor_run_speed_control_c(m, target_dps);
+            evo_motor_run_power_c(m, target_power);
             MICROPY_EVENT_POLL_HOOK;
             mp_hal_delay_ms(10);
         }
     } else {
         while (m->position > target) {
-            evo_motor_run_speed_control_c(m, target_dps);
+            evo_motor_run_power_c(m, target_power);
             MICROPY_EVENT_POLL_HOOK;
             mp_hal_delay_ms(10);
         }
     }
 
-    evo_motor_run_speed_control_c(m, 0);
+    evo_motor_run_power_c(m, 0);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_3(evo_motor_runAngle_obj, evo_motor_runAngle);
@@ -899,8 +831,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(evo_motor_getPower_obj, evo_motor_getPower);
 
 static mp_obj_t evo_motor_runSpeed(mp_obj_t self_in, mp_obj_t target_dps_in) {
     evo_motor_obj_t *m = MP_OBJ_TO_PTR(self_in);
-    mp_float_t target_dps = mp_obj_get_float(target_dps_in);
-    evo_motor_run_speed_control_c(m, target_dps);
+    evo_motor_run_power_c(m, (int)roundf((float)mp_obj_get_float(target_dps_in)));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(evo_motor_runSpeed_obj, evo_motor_runSpeed);

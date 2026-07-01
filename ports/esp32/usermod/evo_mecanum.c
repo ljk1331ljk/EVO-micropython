@@ -377,10 +377,10 @@ static void mecanum_apply_speed(evo_mecanum_obj_t *self, evo_mecanum_exec_t *st)
     int rl = (int)((float)st->currentSpeed * st->rlRatio) * st->rlDir;
     int rr = (int)((float)st->currentSpeed * st->rrRatio) * st->rrDir;
 
-    evo_motor_run_speed_control_c(self->frontLeft,  (mp_float_t)fl);
-    evo_motor_run_speed_control_c(self->frontRight, (mp_float_t)fr);
-    evo_motor_run_speed_control_c(self->rearLeft,   (mp_float_t)rl);
-    evo_motor_run_speed_control_c(self->rearRight,  (mp_float_t)rr);
+    evo_motor_run_power_c(self->frontLeft,  fl);
+    evo_motor_run_power_c(self->frontRight, fr);
+    evo_motor_run_power_c(self->rearLeft,   rl);
+    evo_motor_run_power_c(self->rearRight,  rr);
 }
 
 static void mecanum_apply_sync_speed(evo_mecanum_obj_t *self, evo_mecanum_exec_t *st) {
@@ -429,10 +429,10 @@ static void mecanum_apply_sync_speed(evo_mecanum_obj_t *self, evo_mecanum_exec_t
                                         refProg, rrProg, &st->rrErrPrev, &st->rrErrInt,
                                         dt_s, correction_limit, st->maxSpeed);
 
-    evo_motor_run_speed_control_c(self->frontLeft,  (mp_float_t)fl);
-    evo_motor_run_speed_control_c(self->frontRight, (mp_float_t)fr);
-    evo_motor_run_speed_control_c(self->rearLeft,   (mp_float_t)rl);
-    evo_motor_run_speed_control_c(self->rearRight,  (mp_float_t)rr);
+    evo_motor_run_power_c(self->frontLeft,  fl);
+    evo_motor_run_power_c(self->frontRight, fr);
+    evo_motor_run_power_c(self->rearLeft,   rl);
+    evo_motor_run_power_c(self->rearRight,  rr);
 }
 
 static void mecanum_init_move_degrees(evo_mecanum_obj_t *self, evo_mecanum_exec_t *st) {
