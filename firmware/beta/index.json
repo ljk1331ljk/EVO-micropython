@@ -5,7 +5,7 @@
     {
       "version": "v1.1.0-beta.39",
       "release_tag": "v1.1.0-beta.39",
-      "generated_at": "2026-07-01T01:37:10Z",
+      "generated_at": "2026-07-01T02:30:39Z",
       "manifest_url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.39/firmware-manifest.json",
       "devices": [
         {
@@ -1184,7 +1184,7 @@
   "latest": {
     "version": "v1.1.0-beta.39",
     "release_tag": "v1.1.0-beta.39",
-    "generated_at": "2026-07-01T01:37:10Z",
+    "generated_at": "2026-07-01T02:30:39Z",
     "manifest_url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/v1.1.0-beta.39/firmware-manifest.json",
     "devices": [
       {
