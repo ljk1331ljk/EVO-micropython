@@ -21,4 +21,5 @@ extern const mp_obj_type_t evo_pwm_type;
 extern const mp_obj_fun_builtin_fixed_t evo_get_pwm_singleton_obj;
 
 mp_obj_t evo_get_pwm_singleton(void);
+void evo_pwm_reset(evo_pwm_obj_t *pwm);
 void evo_pwm_set_raw(evo_pwm_obj_t *pwm, uint8_t ch, int on, int off);

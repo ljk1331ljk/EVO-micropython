@@ -83,6 +83,12 @@ void evo_pwm_set_raw(evo_pwm_obj_t *pwm, uint8_t ch, int on, int off) {
     i2c_writeto_mem(pwm->i2c_obj, pwm->addr, (uint8_t)(PCA9685_LED0_ON_L + 4 * ch), buf, 4);
 }
 
+void evo_pwm_reset(evo_pwm_obj_t *pwm) {
+    uint8_t mode1 = 0x80; // RESTART=1
+    i2c_writeto_mem(pwm->i2c_obj, pwm->addr, PCA9685_MODE1, &mode1, 1);
+    mp_hal_delay_ms(5);
+}
+
 static mp_obj_t import_board_pins(void) {
     return mp_import_name(MP_QSTR_pins, mp_const_none, MP_OBJ_NEW_SMALL_INT(0));
 }
