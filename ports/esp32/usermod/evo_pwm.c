@@ -167,6 +167,13 @@ mp_obj_t evo_get_pwm_singleton(void) {
 }
 MP_DEFINE_CONST_FUN_OBJ_0(evo_get_pwm_singleton_obj, evo_get_pwm_singleton);
 
+static mp_obj_t evo_pwm_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+    (void)type;
+    (void)args;
+    mp_arg_check_num(n_args, n_kw, 0, 0, false);
+    return evo_get_pwm_singleton();
+}
+
 static mp_obj_t evo_pwm_freq(size_t n_args, const mp_obj_t *args) {
     evo_pwm_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 
@@ -210,5 +217,6 @@ MP_DEFINE_CONST_OBJ_TYPE(
     evo_pwm_type,
     MP_QSTR_EVOPWMDriver,
     MP_TYPE_FLAG_NONE,
+    make_new, evo_pwm_make_new,
     locals_dict, &evo_pwm_locals_dict
 );
