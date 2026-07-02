@@ -148,7 +148,7 @@ static uint16_t get_board_pwm_addr(void) {
 
 mp_obj_t evo_get_pwm_singleton(void) {
     mp_obj_t *root = &MP_STATE_PORT(evo_pwm_singleton);
-    if (*root != MP_OBJ_NULL) {
+    if (*root != MP_OBJ_NULL && mp_obj_is_type(*root, &evo_pwm_type)) {
         return *root;
     }
 
@@ -166,6 +166,11 @@ mp_obj_t evo_get_pwm_singleton(void) {
     return *root;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(evo_get_pwm_singleton_obj, evo_get_pwm_singleton);
+
+void evo_pwm_clear_singleton(void) {
+    MP_STATE_PORT(evo_pwm_singleton) = MP_OBJ_NULL;
+    s_pca9685_freq_hz = 0;
+}
 
 static mp_obj_t evo_pwm_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
     (void)type;

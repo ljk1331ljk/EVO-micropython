@@ -16,6 +16,7 @@
 #include "evo_mecanum.h"
 
 void evo_soft_reset_cleanup(void) {
+    evo_pwm_clear_singleton();
 }
 
 // ============================================================================
