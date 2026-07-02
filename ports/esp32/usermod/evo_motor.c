@@ -307,12 +307,22 @@ static inline int clamp_power(int s) {
     return s;
 }
 
+static inline void motor_prepare_pwm(evo_motor_obj_t *m) {
+    // The PCA9685 is shared with servo outputs. Motors and servos are mutually
+    // exclusive, so switch to the motor PWM frequency lazily just before writes.
+    // evo_pwm_ensure_freq() caches the shared hardware state to avoid redundant
+    // MODE1/PRESCALE I2C writes when the PCA9685 is already at this frequency.
+    evo_pwm_ensure_freq(m->pwm, EVO_MOTOR_PWM_FREQ);
+}
+
 static inline void motor_coast(evo_motor_obj_t *m) {
+    motor_prepare_pwm(m);
     evo_pwm_set_raw(m->pwm, m->power1, 0, 0);
     evo_pwm_set_raw(m->pwm, m->power2, 0, 0);
 }
 
 static inline void motor_brake(evo_motor_obj_t *m) {
+    motor_prepare_pwm(m);
     evo_motor_wake_drivers();
     evo_pwm_set_raw(m->pwm, m->power1, 0, EVO_PWM_MAX);
     evo_pwm_set_raw(m->pwm, m->power2, 0, EVO_PWM_MAX);
@@ -348,9 +358,11 @@ void evo_motor_run_power_c(evo_motor_obj_t *m, int power) {
     }
 
     if (s > 0) {
+        motor_prepare_pwm(m);
         evo_pwm_set_raw(m->pwm, m->power1, 0, s);
         evo_pwm_set_raw(m->pwm, m->power2, 0, 0);
     } else if (s < 0) {
+        motor_prepare_pwm(m);
         evo_pwm_set_raw(m->pwm, m->power1, 0, 0);
         evo_pwm_set_raw(m->pwm, m->power2, 0, -s);
     } else {

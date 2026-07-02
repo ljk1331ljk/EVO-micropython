@@ -47,7 +47,6 @@ class EvoServo:
                 raise ValueError("invalid servo port")
 
             self._drv = evo.EVOPWMDriver()
-            self._drv.freq(50)
 
         else:
             if p < 0 or p > 50:
@@ -154,6 +153,12 @@ class EvoServo:
         self._pwm.duty(duty)
 
     def _write_servo_port_us(self, pulse_us):
+        # The PCA9685 is shared with motor outputs. Motors and servos are
+        # mutually exclusive, so switch lazily only before a servo PWM write.
+        # The C driver caches the shared hardware frequency and skips redundant
+        # MODE1/PRESCALE I2C writes when it is already at 50Hz.
+        self._drv.freq(50)
+
         # Servo ports operate at the standard 50Hz.
         # Convert pulse width in microseconds into PCA9685 counts.
         off = (int(pulse_us) * 4096) // 20000
@@ -161,7 +166,6 @@ class EvoServo:
             off = 0
         elif off > 4096:
             off = 4096
-        self._drv.freq(50)
         self._drv.pwm(self._ch, 0, off)
 
     def write(self, pos):

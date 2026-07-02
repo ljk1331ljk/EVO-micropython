@@ -78,6 +78,10 @@
 #define EVO_PWM_MAX 4095
 #endif
 
+#ifndef EVO_MOTOR_PWM_FREQ
+#define EVO_MOTOR_PWM_FREQ 3500
+#endif
+
 typedef struct _evo_motor_obj_t {
     mp_obj_base_t base;
 
