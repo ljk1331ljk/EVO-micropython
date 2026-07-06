@@ -74,14 +74,14 @@ class EvoServo:
             self._max_r = 180
 
         elif self._type == GEEK_SERVO_360_GREY:
-            self._min_p = 400
-            self._max_p = 2200
+            self._min_p = 500
+            self._max_p = 2700
             self._min_r = 0
             self._max_r = 360
 
         elif self._type == GEEK_SERVO_360_ORANGE:
-            self._min_p = 400
-            self._max_p = 1960
+            self._min_p = 500
+            self._max_p = 2700
             self._min_r = 0
             self._max_r = 360
 
