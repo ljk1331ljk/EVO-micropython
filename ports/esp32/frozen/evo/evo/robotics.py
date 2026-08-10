@@ -58,6 +58,9 @@ class MotorPair:
     def straight(self, speed, rotation_angle, then=Stop.COAST, relative=True):
         return self._pair.straight(speed, rotation_angle, then, relative)
 
+    def turn(self, speed, angle, then=Stop.COAST):
+        return self._pair.turn(speed, angle, then)
+
     def stop(self, then=Stop.COAST):
         return self._pair.stop(then)
 

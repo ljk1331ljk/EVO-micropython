@@ -865,6 +865,91 @@ static mp_obj_t mp_straight(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_straight_obj, 3, 5, mp_straight);
 
+// turn(power, angle[, stopBehavior])
+// Positive angles turn toward increasing raw IMU headings. IMU turns are
+// intentionally limited to the shortest-path range requested by the API.
+static mp_obj_t mp_turn(size_t n_args, const mp_obj_t *args) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    int maxPower = abs_i(obj_get_rounded_int(args[1]));
+    float angle = (float)mp_obj_get_float(args[2]);
+    int stopBehavior = (n_args >= 4)
+        ? normalize_stop_behavior_obj(args[3])
+        : self->stopBehavior;
+
+    if (angle < -180.0f || angle > 180.0f) {
+        mp_raise_ValueError(MP_ERROR_TEXT("angle must be between -180 and 180"));
+    }
+
+    if (!self->_useIMU) {
+        int direction = angle < 0.0f ? -1 : 1;
+        pair_run_move_degrees(
+            self,
+            maxPower * direction,
+            -maxPower * direction,
+            (int)roundf(fabsf(angle)),
+            stopBehavior
+        );
+        return mp_const_none;
+    }
+
+    float startHeading = pair_get_imu_raw_heading(self);
+    float targetHeading = startHeading + angle;
+    float previousError = angle;
+    uint32_t previousMs = mp_hal_ticks_ms();
+    bool hasPrevious = false;
+
+    self->busy = true;
+    while (1) {
+        MICROPY_EVENT_POLL_HOOK;
+
+        float heading = pair_get_imu_raw_heading(self);
+        float error = -pair_heading_error(heading, targetHeading);
+        if (fabsf(error) <= 1.0f || maxPower == 0) {
+            pair_apply_stop_now(self, stopBehavior);
+            break;
+        }
+
+        uint32_t now = mp_hal_ticks_ms();
+        float derivative = 0.0f;
+        if (hasPrevious) {
+            uint32_t dt = now - previousMs;
+            if (dt > 0) {
+                derivative = (error - previousError) * 1000.0f / (float)dt;
+            }
+        }
+
+        int turnPower = (int)roundf(error * self->kpIMU + derivative * self->kdIMU);
+        turnPower = clamp_i(turnPower, -maxPower, maxPower);
+
+        // Preserve the requested direction if the derivative term briefly
+        // overwhelms the proportional term near the target.
+        if ((error > 0.0f && turnPower < 0) || (error < 0.0f && turnPower > 0)) {
+            turnPower = 0;
+        }
+
+        int minPower = MIN(
+            maxPower,
+            MAX(self->m1->speed_min_power, self->m2->speed_min_power)
+        );
+        if (error > 0.0f && turnPower < minPower) {
+            turnPower = minPower;
+        } else if (error < 0.0f && turnPower > -minPower) {
+            turnPower = -minPower;
+        }
+
+        evo_motor_run_power_c(self->m1, turnPower);
+        evo_motor_run_power_c(self->m2, -turnPower);
+
+        previousError = error;
+        previousMs = now;
+        hasPrevious = true;
+        mp_hal_delay_ms(EVO_PAIR_LOOP_MS);
+    }
+    self->busy = false;
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_turn_obj, 3, 4, mp_turn);
+
 
 static mp_obj_t evo_motorpair_deinit_method(mp_obj_t self_in) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -903,6 +988,7 @@ static const mp_rom_map_elem_t evo_motorpair_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_setIMUPD),               MP_ROM_PTR(&mp_setIMUPD_obj) },
     { MP_ROM_QSTR(MP_QSTR_getIMUPD),               MP_ROM_PTR(&mp_getIMUPD_obj) },
     { MP_ROM_QSTR(MP_QSTR_straight),               MP_ROM_PTR(&mp_straight_obj) },
+    { MP_ROM_QSTR(MP_QSTR_turn),                   MP_ROM_PTR(&mp_turn_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_hold),                   MP_ROM_PTR(&mp_hold_obj) },
     { MP_ROM_QSTR(MP_QSTR_brake),                  MP_ROM_PTR(&mp_brake_obj) },
