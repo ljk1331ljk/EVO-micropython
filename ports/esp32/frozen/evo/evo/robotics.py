@@ -55,8 +55,8 @@ class MotorPair:
     def getIMUPD(self):
         return self._pair.getIMUPD()
 
-    def straight(self, speed, rotation_angle, then=Stop.COAST):
-        return self._pair.straight(speed, rotation_angle, then)
+    def straight(self, speed, rotation_angle, then=Stop.COAST, relative=True):
+        return self._pair.straight(speed, rotation_angle, then, relative)
 
     def stop(self, then=Stop.COAST):
         return self._pair.stop(then)

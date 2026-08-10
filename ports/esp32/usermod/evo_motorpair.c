@@ -141,21 +141,30 @@ typedef struct {
     int accelTimeMs;
     uint32_t t0_ms;
     bool imuStraight;
+    bool imuRelative;
+    float imuTargetHeading;
     float imuPError;
     uint32_t imuPrevMs;
     bool imuHasPrevious;
 } evo_pair_exec_t;
 
-static void pair_reset_imu_heading(evo_motorpair_obj_t *self) {
+static float pair_get_imu_raw_heading(evo_motorpair_obj_t *self) {
     mp_obj_t dest[2];
-    mp_load_method(self->imu, MP_QSTR_resetHeading, dest);
-    mp_call_method_n_kw(0, 0, dest);
+    mp_load_method(self->imu, MP_QSTR_getEulerX, dest);
+    return (float)mp_obj_get_float(mp_call_method_n_kw(0, 0, dest));
 }
 
-static float pair_get_imu_heading(evo_motorpair_obj_t *self) {
-    mp_obj_t dest[2];
-    mp_load_method(self->imu, MP_QSTR_getRelativeHeading, dest);
-    return (float)mp_obj_get_float(mp_call_method_n_kw(0, 0, dest));
+// Return the shortest signed angular displacement from target to heading.
+// This works for negative angles and angles beyond 360 degrees, and prevents
+// the 359 -> 0 sensor wrap from appearing as a 359-degree error.
+static float pair_heading_error(float heading, float target) {
+    float error = fmodf(heading - target, 360.0f);
+    if (error >= 180.0f) {
+        error -= 360.0f;
+    } else if (error < -180.0f) {
+        error += 360.0f;
+    }
+    return error;
 }
 
 static void pair_prepare_common(evo_motorpair_obj_t *self, evo_pair_exec_t *st) {
@@ -280,7 +289,8 @@ static void pair_apply_speed_and_sync(evo_motorpair_obj_t *self, evo_pair_exec_t
     if (st->leftSpeed != 0 && st->rightSpeed != 0) {
         int sync;
         if (st->imuStraight) {
-            float error = pair_get_imu_heading(self);
+            float heading = pair_get_imu_raw_heading(self);
+            float error = pair_heading_error(heading, st->imuTargetHeading);
             uint32_t now = mp_hal_ticks_ms();
             float derivative = 0.0f;
 
@@ -355,7 +365,9 @@ static void pair_init_move_degrees(evo_motorpair_obj_t *self, evo_pair_exec_t *s
     pair_prepare_common(self, st);
 
     if (st->imuStraight) {
-        pair_reset_imu_heading(self);
+        st->imuTargetHeading = st->imuRelative
+            ? pair_get_imu_raw_heading(self)
+            : 0.0f;
     }
 
     st->startSpeed = MIN(self->startSpeed, st->maxSpeed);
@@ -430,6 +442,7 @@ static void pair_run_move_degrees(evo_motorpair_obj_t *self,
     st.degrees = abs_i(degrees);
     st.stopBehavior = stopBehavior;
     st.imuStraight = false;
+    st.imuRelative = false;
 
     self->busy = true;
     pair_init_move_degrees(self, &st);
@@ -521,6 +534,7 @@ static void pair_run_move_time(evo_motorpair_obj_t *self,
     st.slowdowntime = slowdowntime;
     st.stopBehavior = stopBehavior;
     st.imuStraight = false;
+    st.imuRelative = false;
 
     self->busy = true;
     pair_init_move_time(self, &st);
@@ -818,8 +832,8 @@ static mp_obj_t mp_getIMUPD(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mp_getIMUPD_obj, mp_getIMUPD);
 
-// straight(power, degrees[, stopBehavior])
-// Uses encoder distance/profile handling and IMU heading correction when enabled.
+// straight(power, degrees[, stopBehavior[, relative]])
+// relative=true holds the raw heading at movement start; false holds absolute 0.
 static mp_obj_t mp_straight(size_t n_args, const mp_obj_t *args) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     int speed = obj_get_rounded_int(args[1]);
@@ -827,6 +841,7 @@ static mp_obj_t mp_straight(size_t n_args, const mp_obj_t *args) {
     int stopBehavior = (n_args >= 4)
         ? normalize_stop_behavior_obj(args[3])
         : self->stopBehavior;
+    bool relative = (n_args >= 5) ? mp_obj_is_true(args[4]) : true;
 
     evo_pair_exec_t st;
     st.leftSpeed = speed;
@@ -834,6 +849,7 @@ static mp_obj_t mp_straight(size_t n_args, const mp_obj_t *args) {
     st.degrees = abs_i(degrees);
     st.stopBehavior = stopBehavior;
     st.imuStraight = self->_useIMU;
+    st.imuRelative = relative;
 
     self->busy = true;
     pair_init_move_degrees(self, &st);
@@ -847,7 +863,7 @@ static mp_obj_t mp_straight(size_t n_args, const mp_obj_t *args) {
     self->busy = false;
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_straight_obj, 3, 4, mp_straight);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_straight_obj, 3, 5, mp_straight);
 
 
 static mp_obj_t evo_motorpair_deinit_method(mp_obj_t self_in) {
