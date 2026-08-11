@@ -37,6 +37,10 @@ typedef struct _evo_motorpair_obj_t {
     float kiIMU;
     float kdIMU;
 
+    float kpTurnIMU;
+    float kiTurnIMU;
+    float kdTurnIMU;
+
     uint8_t stopBehavior;
     bool busy;
 } evo_motorpair_obj_t;

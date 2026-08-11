@@ -64,11 +64,26 @@ class MotorPair:
     def getIMUPID(self):
         return self._pair.getIMUPID()
 
+    def setIMUTurnKp(self, kp):
+        return self._pair.setIMUTurnKp(kp)
+
+    def setIMUTurnKi(self, ki):
+        return self._pair.setIMUTurnKi(ki)
+
+    def setIMUTurnKd(self, kd):
+        return self._pair.setIMUTurnKd(kd)
+
+    def setIMUTurnPID(self, kp, ki, kd):
+        return self._pair.setIMUTurnPID(kp, ki, kd)
+
+    def getIMUTurnPID(self):
+        return self._pair.getIMUTurnPID()
+
     def straight(self, speed, rotation_angle, then=Stop.COAST, relative=True):
         return self._pair.straight(speed, rotation_angle, then, relative)
 
-    def turn(self, speed, angle, then=Stop.COAST):
-        return self._pair.turn(speed, angle, then)
+    def turn(self, speed, angle, then=Stop.COAST, correction_time=300):
+        return self._pair.turn(speed, angle, then, correction_time)
 
     def stop(self, then=Stop.COAST):
         return self._pair.stop(then)

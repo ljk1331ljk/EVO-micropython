@@ -601,6 +601,9 @@ static mp_obj_t evo_motorpair_make_new(const mp_obj_type_t *type,
     self->kpIMU = 1.0f;
     self->kiIMU = 0.0f;
     self->kdIMU = 0.0f;
+    self->kpTurnIMU = 20.0f;
+    self->kiTurnIMU = 0.0f;
+    self->kdTurnIMU = 0.0f;
 
     self->stopBehavior = EVO_STOP_BRAKE;
     self->busy = false;
@@ -878,6 +881,47 @@ static mp_obj_t mp_getIMUPID(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mp_getIMUPID_obj, mp_getIMUPID);
 
+static mp_obj_t mp_setIMUTurnKp(mp_obj_t self_in, mp_obj_t kp_in) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    self->kpTurnIMU = (float)mp_obj_get_float(kp_in);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(mp_setIMUTurnKp_obj, mp_setIMUTurnKp);
+
+static mp_obj_t mp_setIMUTurnKi(mp_obj_t self_in, mp_obj_t ki_in) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    self->kiTurnIMU = (float)mp_obj_get_float(ki_in);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(mp_setIMUTurnKi_obj, mp_setIMUTurnKi);
+
+static mp_obj_t mp_setIMUTurnKd(mp_obj_t self_in, mp_obj_t kd_in) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    self->kdTurnIMU = (float)mp_obj_get_float(kd_in);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(mp_setIMUTurnKd_obj, mp_setIMUTurnKd);
+
+static mp_obj_t mp_setIMUTurnPID(size_t n_args, const mp_obj_t *args) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    self->kpTurnIMU = (float)mp_obj_get_float(args[1]);
+    self->kiTurnIMU = (float)mp_obj_get_float(args[2]);
+    self->kdTurnIMU = (float)mp_obj_get_float(args[3]);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_setIMUTurnPID_obj, 4, 4, mp_setIMUTurnPID);
+
+static mp_obj_t mp_getIMUTurnPID(mp_obj_t self_in) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_obj_t items[3] = {
+        mp_obj_new_float(self->kpTurnIMU),
+        mp_obj_new_float(self->kiTurnIMU),
+        mp_obj_new_float(self->kdTurnIMU),
+    };
+    return mp_obj_new_tuple(3, items);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(mp_getIMUTurnPID_obj, mp_getIMUTurnPID);
+
 // straight(power, degrees[, stopBehavior[, relative]])
 // relative=true holds the raw heading at movement start; false holds absolute 0.
 static mp_obj_t mp_straight(size_t n_args, const mp_obj_t *args) {
@@ -911,9 +955,47 @@ static mp_obj_t mp_straight(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_straight_obj, 3, 5, mp_straight);
 
-// turn(power, angle[, stopBehavior])
-// Positive angles turn toward increasing raw IMU headings. IMU turns are
-// intentionally limited to the shortest-path range requested by the API.
+static void pair_run_turn_degrees_pd(evo_motorpair_obj_t *self,
+                                     int maxPower,
+                                     int direction,
+                                     int degrees,
+                                     int stopBehavior) {
+    evo_pair_exec_t st;
+    st.leftSpeed = maxPower * direction;
+    st.rightSpeed = -maxPower * direction;
+    st.degrees = degrees;
+    st.stopBehavior = stopBehavior;
+    st.imuStraight = false;
+    st.imuRelative = false;
+
+    self->busy = true;
+    pair_init_move_degrees(self, &st);
+    while (1) {
+        MICROPY_EVENT_POLL_HOOK;
+        pair_update_encoder_state(self, &st);
+
+        if (st.enc >= st.degrees) {
+            pair_apply_stop_now(self, stopBehavior);
+            break;
+        }
+
+        st.speed = pair_calc_degrees_profile_speed(self, &st, st.enc);
+        int sync = st.encError * self->kpSync
+            + (st.encError - st.encPError) * self->kdSync;
+        st.lSpeed = clamp_i((st.speed - sync) * st.leftDir, -maxPower, maxPower);
+        st.rSpeed = clamp_i((st.speed + sync) * st.rightDir, -maxPower, maxPower);
+        evo_motor_run_power_c(self->m1, st.lSpeed);
+        evo_motor_run_power_c(self->m2, st.rSpeed);
+
+        st.encPError = st.encError;
+        mp_hal_delay_ms(EVO_PAIR_LOOP_MS);
+    }
+    self->busy = false;
+}
+
+// turn(power, angle[, stopBehavior[, correctionTimeMs]])
+// Raw IMU samples are unwrapped incrementally so signed turns through one full
+// rotation work across the sensor's 359 -> 0 boundary.
 static mp_obj_t mp_turn(size_t n_args, const mp_obj_t *args) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     int maxPower = abs_i(obj_get_rounded_int(args[1]));
@@ -921,71 +1003,149 @@ static mp_obj_t mp_turn(size_t n_args, const mp_obj_t *args) {
     int stopBehavior = (n_args >= 4)
         ? normalize_stop_behavior_obj(args[3])
         : self->stopBehavior;
+    int correctionTimeMs = (n_args >= 5) ? mp_obj_get_int(args[4]) : 300;
 
-    if (angle < -180.0f || angle > 180.0f) {
-        mp_raise_ValueError(MP_ERROR_TEXT("angle must be between -180 and 180"));
+    if (angle < -360.0f || angle > 360.0f) {
+        mp_raise_ValueError(MP_ERROR_TEXT("angle must be between -360 and 360"));
+    }
+    if (correctionTimeMs < 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("correction time must be >= 0"));
     }
 
     if (!self->_useIMU) {
         int direction = angle < 0.0f ? -1 : 1;
-        pair_run_move_degrees(
+        pair_run_turn_degrees_pd(
             self,
-            maxPower * direction,
-            -maxPower * direction,
+            maxPower,
+            direction,
             (int)roundf(fabsf(angle)),
             stopBehavior
         );
         return mp_const_none;
     }
 
-    float startHeading = pair_get_imu_raw_heading(self);
-    float targetHeading = startHeading + angle;
+    int requestedDirection = angle < 0.0f ? -1 : 1;
+    int turnDegrees = (int)roundf(fabsf(angle));
+
+    evo_pair_exec_t st;
+    st.leftSpeed = maxPower * requestedDirection;
+    st.rightSpeed = -maxPower * requestedDirection;
+    st.degrees = turnDegrees;
+    st.stopBehavior = stopBehavior;
+    st.imuStraight = false;
+    st.imuRelative = false;
+
+    pair_init_move_degrees(self, &st);
+
+    float lastHeading = pair_get_imu_raw_heading(self);
+    float turnedAngle = 0.0f;
     float previousError = angle;
+    float turnIntegral = 0.0f;
     uint32_t previousMs = mp_hal_ticks_ms();
     bool hasPrevious = false;
+    bool correcting = false;
+    uint32_t correctionStartMs = 0;
 
     self->busy = true;
     while (1) {
         MICROPY_EVENT_POLL_HOOK;
 
         float heading = pair_get_imu_raw_heading(self);
-        float error = -pair_heading_error(heading, targetHeading);
-        if (fabsf(error) <= 1.0f || maxPower == 0) {
+        turnedAngle += pair_heading_error(heading, lastHeading);
+        lastHeading = heading;
+        float error = angle - turnedAngle;
+        uint32_t now = mp_hal_ticks_ms();
+
+        bool reachedTarget = fabsf(error) <= 1.0f
+            || (angle > 0.0f && turnedAngle >= angle)
+            || (angle < 0.0f && turnedAngle <= angle)
+            || angle == 0.0f;
+
+        bool justReached = false;
+        if (!correcting && reachedTarget) {
+            correcting = true;
+            correctionStartMs = now;
+            justReached = true;
+        }
+
+        if (maxPower == 0
+            || (correcting && !justReached
+                && (uint32_t)(now - correctionStartMs) >= (uint32_t)correctionTimeMs)) {
             pair_apply_stop_now(self, stopBehavior);
             break;
         }
 
-        uint32_t now = mp_hal_ticks_ms();
         float derivative = 0.0f;
         if (hasPrevious) {
             uint32_t dt = now - previousMs;
             if (dt > 0) {
                 derivative = (error - previousError) * 1000.0f / (float)dt;
+
+                float candidateIntegral = turnIntegral
+                    + error * ((float)dt / 1000.0f);
+                float candidateOutput = error * self->kpTurnIMU
+                    + candidateIntegral * self->kiTurnIMU
+                    + derivative * self->kdTurnIMU;
+                if (candidateOutput >= -(float)maxPower
+                    && candidateOutput <= (float)maxPower) {
+                    turnIntegral = candidateIntegral;
+                }
             }
         }
 
-        int turnPower = (int)roundf(error * self->kpIMU + derivative * self->kdIMU);
-        turnPower = clamp_i(turnPower, -maxPower, maxPower);
+        float pidOutput = error * self->kpTurnIMU
+            + turnIntegral * self->kiTurnIMU
+            + derivative * self->kdTurnIMU;
 
-        // Preserve the requested direction if the derivative term briefly
-        // overwhelms the proportional term near the target.
-        if ((error > 0.0f && turnPower < 0) || (error < 0.0f && turnPower > 0)) {
+        int turnPower;
+        if (!correcting || justReached) {
+            int directedProgress = (int)roundf(turnedAngle * (float)requestedDirection);
+            if (justReached) {
+                directedProgress = turnDegrees;
+            }
+            directedProgress = clamp_i(directedProgress, 0, turnDegrees);
+            int profileSpeed = pair_calc_degrees_profile_speed(self, &st, directedProgress);
+            int lowerSpeed = MIN(profileSpeed, st.endSpeed);
+            int magnitude = abs_i((int)roundf(pidOutput));
+            magnitude = clamp_i(magnitude, lowerSpeed, profileSpeed);
+            turnPower = magnitude * requestedDirection;
+        } else if (fabsf(error) <= 1.0f) {
             turnPower = 0;
+        } else {
+            int correctionLimit = MIN(maxPower, st.endSpeed);
+            int minPower = MIN(
+                correctionLimit,
+                MAX(self->m1->speed_min_power, self->m2->speed_min_power)
+            );
+            turnPower = clamp_i((int)roundf(pidOutput), -correctionLimit, correctionLimit);
+            if (error > 0.0f && turnPower < minPower) {
+                turnPower = minPower;
+            } else if (error < 0.0f && turnPower > -minPower) {
+                turnPower = -minPower;
+            }
         }
 
-        int minPower = MIN(
-            maxPower,
-            MAX(self->m1->speed_min_power, self->m2->speed_min_power)
+        pair_update_encoder_state(self, &st);
+        int sync = st.encError * self->kpSync
+            + (st.encError - st.encPError) * self->kdSync;
+        int magnitude = abs_i(turnPower);
+        sync = clamp_i(sync, -magnitude, magnitude);
+        int commandDirection = turnPower < 0 ? -1 : 1;
+        int leftPower = clamp_i(
+            (magnitude - sync) * commandDirection,
+            -maxPower,
+            maxPower
         );
-        if (error > 0.0f && turnPower < minPower) {
-            turnPower = minPower;
-        } else if (error < 0.0f && turnPower > -minPower) {
-            turnPower = -minPower;
-        }
+        int rightPower = clamp_i(
+            -(magnitude + sync) * commandDirection,
+            -maxPower,
+            maxPower
+        );
 
-        evo_motor_run_power_c(self->m1, turnPower);
-        evo_motor_run_power_c(self->m2, -turnPower);
+        evo_motor_run_power_c(self->m1, leftPower);
+        evo_motor_run_power_c(self->m2, rightPower);
 
+        st.encPError = st.encError;
         previousError = error;
         previousMs = now;
         hasPrevious = true;
@@ -994,7 +1154,7 @@ static mp_obj_t mp_turn(size_t n_args, const mp_obj_t *args) {
     self->busy = false;
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_turn_obj, 3, 4, mp_turn);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_turn_obj, 3, 5, mp_turn);
 
 
 static mp_obj_t evo_motorpair_deinit_method(mp_obj_t self_in) {
@@ -1036,6 +1196,11 @@ static const mp_rom_map_elem_t evo_motorpair_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_getIMUPD),               MP_ROM_PTR(&mp_getIMUPD_obj) },
     { MP_ROM_QSTR(MP_QSTR_setIMUPID),              MP_ROM_PTR(&mp_setIMUPID_obj) },
     { MP_ROM_QSTR(MP_QSTR_getIMUPID),              MP_ROM_PTR(&mp_getIMUPID_obj) },
+    { MP_ROM_QSTR(MP_QSTR_setIMUTurnKp),           MP_ROM_PTR(&mp_setIMUTurnKp_obj) },
+    { MP_ROM_QSTR(MP_QSTR_setIMUTurnKi),           MP_ROM_PTR(&mp_setIMUTurnKi_obj) },
+    { MP_ROM_QSTR(MP_QSTR_setIMUTurnKd),           MP_ROM_PTR(&mp_setIMUTurnKd_obj) },
+    { MP_ROM_QSTR(MP_QSTR_setIMUTurnPID),          MP_ROM_PTR(&mp_setIMUTurnPID_obj) },
+    { MP_ROM_QSTR(MP_QSTR_getIMUTurnPID),          MP_ROM_PTR(&mp_getIMUTurnPID_obj) },
     { MP_ROM_QSTR(MP_QSTR_straight),               MP_ROM_PTR(&mp_straight_obj) },
     { MP_ROM_QSTR(MP_QSTR_turn),                   MP_ROM_PTR(&mp_turn_obj) },
 
