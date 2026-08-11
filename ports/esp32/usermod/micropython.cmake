@@ -7,6 +7,7 @@ set(EVOX1E_SOURCES
     ${EVOX1E_DIR}/evo_pwm.c
     ${EVOX1E_DIR}/evo_motor.c
     ${EVOX1E_DIR}/evo_motorpair.c
+    ${EVOX1E_DIR}/evo_linetrace.c
     ${EVOX1E_DIR}/evo_mecanum.c
 )
 

@@ -13,6 +13,7 @@
 #include "evo_pwm.h"
 #include "evo_motor.h"
 #include "evo_motorpair.h"
+#include "evo_linetrace.h"
 #include "evo_mecanum.h"
 
 void evo_soft_reset_cleanup(void) {
@@ -884,6 +885,7 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
 
     { MP_ROM_QSTR(MP_QSTR_EvoMotor), MP_ROM_PTR(&evo_motor_type) },
     { MP_ROM_QSTR(MP_QSTR_EvoMotorPair), MP_ROM_PTR(&evo_motorpair_type) },
+    { MP_ROM_QSTR(MP_QSTR_EvoLineTrace), MP_ROM_PTR(&evo_linetrace_type) },
     { MP_ROM_QSTR(MP_QSTR_EvoMecanum), MP_ROM_PTR(&evo_mecanum_type) },
 
     { MP_ROM_QSTR(MP_QSTR_M1), MP_ROM_INT(EVO_M1) },
@@ -909,6 +911,10 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_ACCEL_NONE),      MP_ROM_INT(EVO_ACCEL_NONE) },
     { MP_ROM_QSTR(MP_QSTR_ACCEL_TRAPEZOID), MP_ROM_INT(EVO_ACCEL_TRAPEZOID) },
     { MP_ROM_QSTR(MP_QSTR_ACCEL_SCURVE),    MP_ROM_INT(EVO_ACCEL_SCURVE) },
+
+    { MP_ROM_QSTR(MP_QSTR_LEFT),  MP_ROM_INT(EVO_JUNCTION_LEFT) },
+    { MP_ROM_QSTR(MP_QSTR_RIGHT), MP_ROM_INT(EVO_JUNCTION_RIGHT) },
+    { MP_ROM_QSTR(MP_QSTR_BOTH),  MP_ROM_INT(EVO_JUNCTION_BOTH) },
 };
 
 static MP_DEFINE_CONST_DICT(evo_module_globals, evo_module_globals_table);
