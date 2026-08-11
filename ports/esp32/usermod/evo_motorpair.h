@@ -20,6 +20,8 @@ typedef struct _evo_motorpair_obj_t {
 
     evo_motor_obj_t *m1;
     evo_motor_obj_t *m2;
+    mp_obj_t imu;
+    bool _useIMU;
 
     int startSpeed;
     int endSpeed;
@@ -30,6 +32,9 @@ typedef struct _evo_motorpair_obj_t {
     int kpSync;
     int kiSync;
     int kdSync;
+
+    float kpIMU;
+    float kdIMU;
 
     uint8_t stopBehavior;
     bool busy;

@@ -18,12 +18,14 @@ def _native_motor(motor):
 class MotorPair:
     """Wrapper around the native EvoMotorPair."""
 
-    def __init__(self, left_motor, right_motor):
+    def __init__(self, left_motor, right_motor, imu=None):
         self.left_motor = left_motor
         self.right_motor = right_motor
+        self.imu = imu
         self._pair = _native_evo.EvoMotorPair(
             _native_motor(left_motor),
             _native_motor(right_motor),
+            imu,
         )
 
     def move(self, speed, steering=0):
@@ -37,6 +39,27 @@ class MotorPair:
 
     def run_time(self, speed, time_ms, steering=0, then=Stop.COAST):
         return self._pair.moveTime(speed, steering, time_ms)
+
+    def useIMU(self, enabled):
+        return self._pair.useIMU(enabled)
+
+    def setIMUKp(self, kp):
+        return self._pair.setIMUKp(kp)
+
+    def setIMUKd(self, kd):
+        return self._pair.setIMUKd(kd)
+
+    def setIMUPD(self, kp, kd):
+        return self._pair.setIMUPD(kp, kd)
+
+    def getIMUPD(self):
+        return self._pair.getIMUPD()
+
+    def straight(self, speed, rotation_angle, then=Stop.COAST, relative=True):
+        return self._pair.straight(speed, rotation_angle, then, relative)
+
+    def turn(self, speed, angle, then=Stop.COAST):
+        return self._pair.turn(speed, angle, then)
 
     def stop(self, then=Stop.COAST):
         return self._pair.stop(then)
