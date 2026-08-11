@@ -144,6 +144,7 @@ typedef struct {
     bool imuRelative;
     float imuTargetHeading;
     float imuPError;
+    float imuIntegral;
     uint32_t imuPrevMs;
     bool imuHasPrevious;
 } evo_pair_exec_t;
@@ -201,6 +202,7 @@ static void pair_prepare_common(evo_motorpair_obj_t *self, evo_pair_exec_t *st) 
     st->rSpeed = 0;
     st->accelTimeMs = 0;
     st->imuPError = 0.0f;
+    st->imuIntegral = 0.0f;
     st->imuPrevMs = 0;
     st->imuHasPrevious = false;
 
@@ -298,10 +300,26 @@ static void pair_apply_speed_and_sync(evo_motorpair_obj_t *self, evo_pair_exec_t
                 uint32_t dt = now - st->imuPrevMs;
                 if (dt > 0) {
                     derivative = (error - st->imuPError) * 1000.0f / (float)dt;
+
+                    float candidateIntegral = st->imuIntegral
+                        + error * ((float)dt / 1000.0f);
+                    float candidateOutput = error * self->kpIMU
+                        + candidateIntegral * self->kiIMU
+                        + derivative * self->kdIMU;
+
+                    // Conditional integration prevents the integral term from
+                    // winding up while the controller output is saturated.
+                    if (candidateOutput >= -(float)EVO_PWM_MAX
+                        && candidateOutput <= (float)EVO_PWM_MAX) {
+                        st->imuIntegral = candidateIntegral;
+                    }
                 }
             }
 
-            sync = (int)roundf(error * self->kpIMU + derivative * self->kdIMU);
+            float output = error * self->kpIMU
+                + st->imuIntegral * self->kiIMU
+                + derivative * self->kdIMU;
+            sync = clamp_i((int)roundf(output), -EVO_PWM_MAX, EVO_PWM_MAX);
             st->imuPError = error;
             st->imuPrevMs = now;
             st->imuHasPrevious = true;
@@ -581,6 +599,7 @@ static mp_obj_t evo_motorpair_make_new(const mp_obj_type_t *type,
     self->kiSync = 5;
     self->kdSync = 800;
     self->kpIMU = 1.0f;
+    self->kiIMU = 0.0f;
     self->kdIMU = 0.0f;
 
     self->stopBehavior = EVO_STOP_BRAKE;
@@ -807,6 +826,13 @@ static mp_obj_t mp_setIMUKp(mp_obj_t self_in, mp_obj_t kp_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mp_setIMUKp_obj, mp_setIMUKp);
 
+static mp_obj_t mp_setIMUKi(mp_obj_t self_in, mp_obj_t ki_in) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    self->kiIMU = (float)mp_obj_get_float(ki_in);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(mp_setIMUKi_obj, mp_setIMUKi);
+
 static mp_obj_t mp_setIMUKd(mp_obj_t self_in, mp_obj_t kd_in) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
     self->kdIMU = (float)mp_obj_get_float(kd_in);
@@ -831,6 +857,26 @@ static mp_obj_t mp_getIMUPD(mp_obj_t self_in) {
     return mp_obj_new_tuple(2, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mp_getIMUPD_obj, mp_getIMUPD);
+
+static mp_obj_t mp_setIMUPID(size_t n_args, const mp_obj_t *args) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    self->kpIMU = (float)mp_obj_get_float(args[1]);
+    self->kiIMU = (float)mp_obj_get_float(args[2]);
+    self->kdIMU = (float)mp_obj_get_float(args[3]);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_setIMUPID_obj, 4, 4, mp_setIMUPID);
+
+static mp_obj_t mp_getIMUPID(mp_obj_t self_in) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_obj_t items[3] = {
+        mp_obj_new_float(self->kpIMU),
+        mp_obj_new_float(self->kiIMU),
+        mp_obj_new_float(self->kdIMU),
+    };
+    return mp_obj_new_tuple(3, items);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(mp_getIMUPID_obj, mp_getIMUPID);
 
 // straight(power, degrees[, stopBehavior[, relative]])
 // relative=true holds the raw heading at movement start; false holds absolute 0.
@@ -984,9 +1030,12 @@ static const mp_rom_map_elem_t evo_motorpair_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_moveTime),               MP_ROM_PTR(&mp_moveTime_obj) },
     { MP_ROM_QSTR(MP_QSTR_useIMU),                 MP_ROM_PTR(&mp_useIMU_obj) },
     { MP_ROM_QSTR(MP_QSTR_setIMUKp),               MP_ROM_PTR(&mp_setIMUKp_obj) },
+    { MP_ROM_QSTR(MP_QSTR_setIMUKi),               MP_ROM_PTR(&mp_setIMUKi_obj) },
     { MP_ROM_QSTR(MP_QSTR_setIMUKd),               MP_ROM_PTR(&mp_setIMUKd_obj) },
     { MP_ROM_QSTR(MP_QSTR_setIMUPD),               MP_ROM_PTR(&mp_setIMUPD_obj) },
     { MP_ROM_QSTR(MP_QSTR_getIMUPD),               MP_ROM_PTR(&mp_getIMUPD_obj) },
+    { MP_ROM_QSTR(MP_QSTR_setIMUPID),              MP_ROM_PTR(&mp_setIMUPID_obj) },
+    { MP_ROM_QSTR(MP_QSTR_getIMUPID),              MP_ROM_PTR(&mp_getIMUPID_obj) },
     { MP_ROM_QSTR(MP_QSTR_straight),               MP_ROM_PTR(&mp_straight_obj) },
     { MP_ROM_QSTR(MP_QSTR_turn),                   MP_ROM_PTR(&mp_turn_obj) },
 

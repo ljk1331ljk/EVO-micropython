@@ -34,6 +34,7 @@ typedef struct _evo_motorpair_obj_t {
     int kdSync;
 
     float kpIMU;
+    float kiIMU;
     float kdIMU;
 
     uint8_t stopBehavior;
