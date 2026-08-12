@@ -21,6 +21,8 @@ typedef struct _evo_motorpair_obj_t {
     evo_motor_obj_t *m1;
     evo_motor_obj_t *m2;
     mp_obj_t imu;
+    mp_obj_t imuHeadingMethod[2];
+    bool imuHeadingMethodLoaded;
     bool _useIMU;
 
     int startSpeed;
