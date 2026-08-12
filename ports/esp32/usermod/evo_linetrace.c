@@ -5,17 +5,36 @@
 #include "py/mphal.h"
 #include "py/runtime.h"
 
+#if __has_include("extmod/machine_i2c.h")
+    #include "extmod/machine_i2c.h"
+#elif __has_include("extmod/modmachine_i2c.h")
+    #include "extmod/modmachine_i2c.h"
+#else
+    #include "extmod/modmachine.h"
+#endif
+
 #include "evo_linetrace.h"
 #include "evo_motor.h"
 #include "evo_motorpair.h"
 
 #define EVO_LINE_LOOP_MS (1)
+#define EVO_COLOR_COMMAND_BIT (0x80)
+#define EVO_COLOR_CLEAR_REG   (0x14)
+
+typedef struct _evo_line_sensor_t {
+    mp_obj_t wrapper;
+    mp_obj_t i2c;
+    uint8_t channel;
+    uint8_t address;
+    uint8_t mux_address;
+    bool has_multiplexer;
+} evo_line_sensor_t;
 
 typedef struct _evo_linetrace_obj_t {
     mp_obj_base_t base;
     evo_motorpair_obj_t *robot;
-    mp_obj_t left_sensor;
-    mp_obj_t right_sensor;
+    evo_line_sensor_t left_sensor;
+    evo_line_sensor_t right_sensor;
     mp_float_t kp;
     mp_float_t ki;
     mp_float_t kd;
@@ -42,10 +61,80 @@ static inline int abs_i(int value) {
     return value < 0 ? -value : value;
 }
 
-static int read_raw_clear(mp_obj_t sensor) {
-    mp_obj_t destination[2];
-    mp_load_method(sensor, MP_QSTR_getRawClear, destination);
-    return mp_obj_get_int(mp_call_method_n_kw(0, 0, destination));
+static mp_machine_i2c_p_t *get_i2c_proto(mp_obj_t i2c) {
+    return (mp_machine_i2c_p_t *)MP_OBJ_TYPE_GET_SLOT(mp_obj_get_type(i2c), protocol);
+}
+
+static void i2c_transfer_checked(mp_obj_t i2c, uint16_t address, size_t count,
+                                 mp_machine_i2c_buf_t *buffers, unsigned int flags) {
+    mp_machine_i2c_p_t *protocol = get_i2c_proto(i2c);
+    if (protocol == NULL || protocol->transfer == NULL) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("I2C transfer unsupported"));
+    }
+    int result = protocol->transfer(i2c, address, count, buffers, flags);
+    if (result < 0) {
+        mp_raise_OSError(-result);
+    }
+}
+
+static evo_line_sensor_t make_line_sensor(mp_obj_t sensor) {
+    // EvoColorSensor.i2c is the I2CDevice wrapper. Its i2c attribute is the
+    // native machine.I2C object used for allocation-free transfers below.
+    evo_line_sensor_t native;
+    native.wrapper = mp_load_attr(sensor, MP_QSTR_i2c);
+    native.i2c = mp_load_attr(native.wrapper, MP_QSTR_i2c);
+    native.channel = (uint8_t)mp_obj_get_int(mp_load_attr(sensor, MP_QSTR_channel));
+    native.address = (uint8_t)mp_obj_get_int(mp_load_attr(sensor, MP_QSTR_address));
+    native.has_multiplexer = mp_obj_is_true(
+        mp_load_attr(native.wrapper, MP_QSTR_has_multiplexer));
+    native.mux_address = native.has_multiplexer
+        ? (uint8_t)mp_obj_get_int(mp_load_attr(native.wrapper, MP_QSTR_multiplexer_address))
+        : 0;
+
+    mp_machine_i2c_p_t *protocol = get_i2c_proto(native.i2c);
+    if (protocol == NULL || protocol->transfer == NULL) {
+        mp_raise_TypeError(MP_ERROR_TEXT("sensor must use a native machine.I2C bus"));
+    }
+    if (native.channel > 7) {
+        mp_raise_ValueError(MP_ERROR_TEXT("sensor mux channel must be 0..7"));
+    }
+    return native;
+}
+
+static int read_raw_clear(evo_line_sensor_t *sensor) {
+    if (sensor->has_multiplexer) {
+        uint8_t selection = (uint8_t)(1U << sensor->channel);
+        mp_machine_i2c_buf_t select_buffer = {.len = 1, .buf = &selection};
+        i2c_transfer_checked(sensor->i2c, sensor->mux_address, 1, &select_buffer,
+            MP_MACHINE_I2C_FLAG_STOP);
+
+        // Keep I2CDevice's channel cache consistent with the hardware even
+        // though the channel selection bypasses its Python method.
+        mp_store_attr(sensor->wrapper, MP_QSTR_current_channel,
+            MP_OBJ_NEW_SMALL_INT(sensor->channel));
+    }
+
+    uint8_t register_address = EVO_COLOR_COMMAND_BIT | EVO_COLOR_CLEAR_REG;
+    uint8_t clear_data[2];
+    mp_machine_i2c_buf_t buffers[2] = {
+        {.len = 1, .buf = &register_address},
+        {.len = sizeof(clear_data), .buf = clear_data},
+    };
+
+    mp_machine_i2c_p_t *protocol = get_i2c_proto(sensor->i2c);
+    #if MICROPY_PY_MACHINE_I2C_TRANSFER_WRITE1
+    if (protocol->transfer_supports_write1) {
+        i2c_transfer_checked(sensor->i2c, sensor->address, 2, buffers,
+            MP_MACHINE_I2C_FLAG_WRITE1 | MP_MACHINE_I2C_FLAG_READ | MP_MACHINE_I2C_FLAG_STOP);
+    } else
+    #endif
+    {
+        i2c_transfer_checked(sensor->i2c, sensor->address, 1, &buffers[0], 0);
+        i2c_transfer_checked(sensor->i2c, sensor->address, 1, &buffers[1],
+            MP_MACHINE_I2C_FLAG_READ | MP_MACHINE_I2C_FLAG_STOP);
+    }
+
+    return clear_data[0] | ((int)clear_data[1] << 8);
 }
 
 static int map_reading(int raw, int input_min, int input_max) {
@@ -57,8 +146,8 @@ static int map_reading(int raw, int input_min, int input_max) {
 }
 
 static void read_calibrated(evo_linetrace_obj_t *self, int *left, int *right) {
-    *left = map_reading(read_raw_clear(self->left_sensor), self->left_min, self->left_max);
-    *right = map_reading(read_raw_clear(self->right_sensor), self->right_min, self->right_max);
+    *left = map_reading(read_raw_clear(&self->left_sensor), self->left_min, self->left_max);
+    *right = map_reading(read_raw_clear(&self->right_sensor), self->right_min, self->right_max);
 }
 
 static bool junction_reached(int left, int right, int type, int threshold) {
@@ -134,14 +223,10 @@ static mp_obj_t evo_linetrace_make_new(const mp_obj_type_t *type, size_t n_args,
         mp_raise_TypeError(MP_ERROR_TEXT("robot must be EvoMotorPair"));
     }
 
-    // Validate the sensor interface at construction time.
-    mp_load_attr(args[1], MP_QSTR_getRawClear);
-    mp_load_attr(args[2], MP_QSTR_getRawClear);
-
     evo_linetrace_obj_t *self = mp_obj_malloc(evo_linetrace_obj_t, type);
     self->robot = MP_OBJ_TO_PTR(args[0]);
-    self->left_sensor = args[1];
-    self->right_sensor = args[2];
+    self->left_sensor = make_line_sensor(args[1]);
+    self->right_sensor = make_line_sensor(args[2]);
     self->kp = 1.0f;
     self->ki = 0.0f;
     self->kd = 0.0f;
