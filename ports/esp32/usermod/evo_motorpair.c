@@ -14,6 +14,7 @@
 #endif
 
 #define EVO_PAIR_LOOP_MS (1)
+#define EVO_IMU_SAMPLE_MS (10)
 #ifndef EVO_ACCEL_NONE
 #define EVO_ACCEL_NONE      (0)
 #endif
@@ -147,12 +148,17 @@ typedef struct {
     float imuIntegral;
     uint32_t imuPrevMs;
     bool imuHasPrevious;
+    int imuCorrection;
 } evo_pair_exec_t;
 
 static float pair_get_imu_raw_heading(evo_motorpair_obj_t *self) {
-    mp_obj_t dest[2];
-    mp_load_method(self->imu, MP_QSTR_getEulerX, dest);
-    return (float)mp_obj_get_float(mp_call_method_n_kw(0, 0, dest));
+    if (!self->imuHeadingMethodLoaded) {
+        mp_load_method(self->imu, MP_QSTR_getEulerX, self->imuHeadingMethod);
+        self->imuHeadingMethodLoaded = true;
+    }
+    return (float)mp_obj_get_float(
+        mp_call_method_n_kw(0, 0, self->imuHeadingMethod)
+    );
 }
 
 // Return the shortest signed angular displacement from target to heading.
@@ -205,6 +211,7 @@ static void pair_prepare_common(evo_motorpair_obj_t *self, evo_pair_exec_t *st) 
     st->imuIntegral = 0.0f;
     st->imuPrevMs = 0;
     st->imuHasPrevious = false;
+    st->imuCorrection = 0;
 
     (void)self;
 }
@@ -291,38 +298,46 @@ static void pair_apply_speed_and_sync(evo_motorpair_obj_t *self, evo_pair_exec_t
     if (st->leftSpeed != 0 && st->rightSpeed != 0) {
         int sync;
         if (st->imuStraight) {
-            float heading = pair_get_imu_raw_heading(self);
-            float error = pair_heading_error(heading, st->imuTargetHeading);
             uint32_t now = mp_hal_ticks_ms();
-            float derivative = 0.0f;
+            if (!st->imuHasPrevious
+                || (uint32_t)(now - st->imuPrevMs) >= EVO_IMU_SAMPLE_MS) {
+                float heading = pair_get_imu_raw_heading(self);
+                float error = pair_heading_error(heading, st->imuTargetHeading);
+                float derivative = 0.0f;
 
-            if (st->imuHasPrevious) {
-                uint32_t dt = now - st->imuPrevMs;
-                if (dt > 0) {
-                    derivative = (error - st->imuPError) * 1000.0f / (float)dt;
+                if (st->imuHasPrevious) {
+                    uint32_t dt = now - st->imuPrevMs;
+                    if (dt > 0) {
+                        derivative = (error - st->imuPError) * 1000.0f / (float)dt;
 
-                    float candidateIntegral = st->imuIntegral
-                        + error * ((float)dt / 1000.0f);
-                    float candidateOutput = error * self->kpIMU
-                        + candidateIntegral * self->kiIMU
-                        + derivative * self->kdIMU;
+                        float candidateIntegral = st->imuIntegral
+                            + error * ((float)dt / 1000.0f);
+                        float candidateOutput = error * self->kpIMU
+                            + candidateIntegral * self->kiIMU
+                            + derivative * self->kdIMU;
 
-                    // Conditional integration prevents the integral term from
-                    // winding up while the controller output is saturated.
-                    if (candidateOutput >= -(float)EVO_PWM_MAX
-                        && candidateOutput <= (float)EVO_PWM_MAX) {
-                        st->imuIntegral = candidateIntegral;
+                        // Conditional integration prevents the integral term
+                        // from winding up while output is saturated.
+                        if (candidateOutput >= -(float)EVO_PWM_MAX
+                            && candidateOutput <= (float)EVO_PWM_MAX) {
+                            st->imuIntegral = candidateIntegral;
+                        }
                     }
                 }
-            }
 
-            float output = error * self->kpIMU
-                + st->imuIntegral * self->kiIMU
-                + derivative * self->kdIMU;
-            sync = clamp_i((int)roundf(output), -EVO_PWM_MAX, EVO_PWM_MAX);
-            st->imuPError = error;
-            st->imuPrevMs = now;
-            st->imuHasPrevious = true;
+                float output = error * self->kpIMU
+                    + st->imuIntegral * self->kiIMU
+                    + derivative * self->kdIMU;
+                st->imuCorrection = clamp_i(
+                    (int)roundf(output),
+                    -EVO_PWM_MAX,
+                    EVO_PWM_MAX
+                );
+                st->imuPError = error;
+                st->imuPrevMs = now;
+                st->imuHasPrevious = true;
+            }
+            sync = st->imuCorrection;
         } else {
             sync = st->encError * self->kpSync
                  + (st->encError - st->encPError) * self->kdSync
@@ -587,6 +602,9 @@ static mp_obj_t evo_motorpair_make_new(const mp_obj_type_t *type,
     self->m1 = get_native_motor(args[ARG_m1].u_obj);
     self->m2 = get_native_motor(args[ARG_m2].u_obj);
     self->imu = args[ARG_imu].u_obj;
+    self->imuHeadingMethod[0] = MP_OBJ_NULL;
+    self->imuHeadingMethod[1] = MP_OBJ_NULL;
+    self->imuHeadingMethodLoaded = false;
     self->_useIMU = false;
 
     self->startSpeed = 800;
@@ -1040,9 +1058,11 @@ static mp_obj_t mp_turn(size_t n_args, const mp_obj_t *args) {
     float lastHeading = pair_get_imu_raw_heading(self);
     float turnedAngle = 0.0f;
     float previousError = angle;
+    float error = angle;
     float turnIntegral = 0.0f;
     uint32_t previousMs = mp_hal_ticks_ms();
     bool hasPrevious = false;
+    float pidOutput = error * self->kpTurnIMU;
     bool correcting = false;
     uint32_t correctionStartMs = 0;
 
@@ -1050,11 +1070,39 @@ static mp_obj_t mp_turn(size_t n_args, const mp_obj_t *args) {
     while (1) {
         MICROPY_EVENT_POLL_HOOK;
 
-        float heading = pair_get_imu_raw_heading(self);
-        turnedAngle += pair_heading_error(heading, lastHeading);
-        lastHeading = heading;
-        float error = angle - turnedAngle;
         uint32_t now = mp_hal_ticks_ms();
+
+        if ((uint32_t)(now - previousMs) >= EVO_IMU_SAMPLE_MS) {
+            float heading = pair_get_imu_raw_heading(self);
+            turnedAngle += pair_heading_error(heading, lastHeading);
+            lastHeading = heading;
+            error = angle - turnedAngle;
+
+            uint32_t dt = now - previousMs;
+            float derivative = 0.0f;
+            if (hasPrevious && dt > 0) {
+                derivative = (error - previousError) * 1000.0f / (float)dt;
+            }
+
+            if (dt > 0) {
+                float candidateIntegral = turnIntegral
+                    + error * ((float)dt / 1000.0f);
+                float candidateOutput = error * self->kpTurnIMU
+                    + candidateIntegral * self->kiTurnIMU
+                    + derivative * self->kdTurnIMU;
+                if (candidateOutput >= -(float)maxPower
+                    && candidateOutput <= (float)maxPower) {
+                    turnIntegral = candidateIntegral;
+                }
+            }
+
+            pidOutput = error * self->kpTurnIMU
+                + turnIntegral * self->kiTurnIMU
+                + derivative * self->kdTurnIMU;
+            previousError = error;
+            previousMs = now;
+            hasPrevious = true;
+        }
 
         bool reachedTarget = fabsf(error) <= 1.0f
             || (angle > 0.0f && turnedAngle >= angle)
@@ -1074,28 +1122,6 @@ static mp_obj_t mp_turn(size_t n_args, const mp_obj_t *args) {
             pair_apply_stop_now(self, stopBehavior);
             break;
         }
-
-        float derivative = 0.0f;
-        if (hasPrevious) {
-            uint32_t dt = now - previousMs;
-            if (dt > 0) {
-                derivative = (error - previousError) * 1000.0f / (float)dt;
-
-                float candidateIntegral = turnIntegral
-                    + error * ((float)dt / 1000.0f);
-                float candidateOutput = error * self->kpTurnIMU
-                    + candidateIntegral * self->kiTurnIMU
-                    + derivative * self->kdTurnIMU;
-                if (candidateOutput >= -(float)maxPower
-                    && candidateOutput <= (float)maxPower) {
-                    turnIntegral = candidateIntegral;
-                }
-            }
-        }
-
-        float pidOutput = error * self->kpTurnIMU
-            + turnIntegral * self->kiTurnIMU
-            + derivative * self->kdTurnIMU;
 
         int turnPower;
         if (!correcting || justReached) {
@@ -1146,9 +1172,6 @@ static mp_obj_t mp_turn(size_t n_args, const mp_obj_t *args) {
         evo_motor_run_power_c(self->m2, rightPower);
 
         st.encPError = st.encError;
-        previousError = error;
-        previousMs = now;
-        hasPrevious = true;
         mp_hal_delay_ms(EVO_PAIR_LOOP_MS);
     }
     self->busy = false;

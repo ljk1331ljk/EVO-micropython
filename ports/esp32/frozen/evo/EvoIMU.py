@@ -66,6 +66,11 @@ class EvoIMU:
         data = self.i2c.readfrom_mem(self.channel, self.address, _BNO055_EULER_H_LSB_ADDR, 6)
         return ustruct.unpack("<hhh", data)
 
+    def _readHeadingRaw(self):
+        self._select()
+        data = self.i2c.readfrom_mem(self.channel, self.address, _BNO055_EULER_H_LSB_ADDR, 2)
+        return ustruct.unpack("<h", data)[0]
+
     # -----------------------------
     # Initialisation
     # -----------------------------
@@ -134,7 +139,7 @@ class EvoIMU:
         return (x / 16.0, y / 16.0, z / 16.0)
 
     def getEulerX(self):
-        return self.getEuler()[0]
+        return self._readHeadingRaw() / 16.0
 
     def getEulerY(self):
         return self.getEuler()[1]
