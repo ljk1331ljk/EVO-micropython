@@ -17,8 +17,6 @@
 #include "evo_motor.h"
 #include "evo_motorpair.h"
 
-#define EVO_LINE_LOOP_US (3000)
-#define EVO_LINE_EVENT_POLL_INTERVAL (8)
 #define EVO_COLOR_COMMAND_BIT (0x80)
 #define EVO_COLOR_CLEAR_REG   (0x14)
 
@@ -160,20 +158,6 @@ static void sync_mux_cache(evo_linetrace_obj_t *self) {
     if (self->right_sensor.has_multiplexer) {
         mp_store_attr(self->right_sensor.wrapper, MP_QSTR_current_channel,
             MP_OBJ_NEW_SMALL_INT(self->right_sensor.channel));
-    }
-}
-
-static void line_loop_wait(uint32_t iteration_start_us, uint8_t *poll_counter,
-                           evo_linetrace_obj_t *self) {
-    if (++(*poll_counter) >= EVO_LINE_EVENT_POLL_INTERVAL) {
-        *poll_counter = 0;
-        sync_mux_cache(self);
-        MICROPY_EVENT_POLL_HOOK;
-    }
-
-    uint32_t elapsed_us = (uint32_t)mp_hal_ticks_us() - iteration_start_us;
-    if (elapsed_us < EVO_LINE_LOOP_US) {
-        mp_hal_delay_us(EVO_LINE_LOOP_US - elapsed_us);
     }
 }
 
@@ -320,13 +304,10 @@ static mp_obj_t double_degrees(size_t n_args, const mp_obj_t *args) {
     int left_start = evo_motor_get_angle_deg(self->robot->m1);
     int right_start = evo_motor_get_angle_deg(self->robot->m2);
     evo_line_pid_t pid = {0};
-    uint8_t poll_counter = 0;
     while (degree_progress(self->robot, left_start, right_start) < degrees) {
-        uint32_t iteration_start_us = (uint32_t)mp_hal_ticks_us();
         int left, right;
         read_calibrated(self, &left, &right);
         drive_pid(self, speed, (mp_float_t)(left - right), &pid);
-        line_loop_wait(iteration_start_us, &poll_counter, self);
     }
     if (degrees > 0) {
         sync_mux_cache(self);
@@ -348,16 +329,13 @@ static mp_obj_t single_degrees(size_t n_args, const mp_obj_t *args) {
     int left_start = evo_motor_get_angle_deg(self->robot->m1);
     int right_start = evo_motor_get_angle_deg(self->robot->m2);
     evo_line_pid_t pid = {0};
-    uint8_t poll_counter = 0;
     while (degree_progress(self->robot, left_start, right_start) < degrees) {
-        uint32_t iteration_start_us = (uint32_t)mp_hal_ticks_us();
         int left, right;
         read_calibrated(self, &left, &right);
         mp_float_t error = side == EVO_JUNCTION_LEFT
             ? (mp_float_t)(left - threshold)
             : (mp_float_t)(threshold - right);
         drive_pid(self, speed, error, &pid);
-        line_loop_wait(iteration_start_us, &poll_counter, self);
     }
     if (degrees > 0) {
         sync_mux_cache(self);
@@ -375,14 +353,11 @@ static mp_obj_t double_junction(size_t n_args, const mp_obj_t *args) {
     bool stop = mp_obj_is_true(args[4]);
     validate_junction_type(junction_type);
     evo_line_pid_t pid = {0};
-    uint8_t poll_counter = 0;
     while (true) {
-        uint32_t iteration_start_us = (uint32_t)mp_hal_ticks_us();
         int left, right;
         read_calibrated(self, &left, &right);
         if (junction_reached(left, right, junction_type, junction_threshold)) break;
         drive_pid(self, speed, (mp_float_t)(left - right), &pid);
-        line_loop_wait(iteration_start_us, &poll_counter, self);
     }
     sync_mux_cache(self);
     finish_move(self->robot, stop);
@@ -401,9 +376,7 @@ static mp_obj_t single_junction(size_t n_args, const mp_obj_t *args) {
     validate_tracking_side(side);
     validate_junction_type(junction_type);
     evo_line_pid_t pid = {0};
-    uint8_t poll_counter = 0;
     while (true) {
-        uint32_t iteration_start_us = (uint32_t)mp_hal_ticks_us();
         int left, right;
         read_calibrated(self, &left, &right);
         if (junction_reached(left, right, junction_type, junction_threshold)) break;
@@ -411,7 +384,6 @@ static mp_obj_t single_junction(size_t n_args, const mp_obj_t *args) {
             ? (mp_float_t)(left - threshold)
             : (mp_float_t)(threshold - right);
         drive_pid(self, speed, error, &pid);
-        line_loop_wait(iteration_start_us, &poll_counter, self);
     }
     sync_mux_cache(self);
     finish_move(self->robot, stop);
