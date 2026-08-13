@@ -17,7 +17,8 @@
 #include "evo_motor.h"
 #include "evo_motorpair.h"
 
-#define EVO_LINE_LOOP_MS (1)
+#define EVO_LINE_LOOP_US (3000)
+#define EVO_LINE_EVENT_POLL_INTERVAL (8)
 #define EVO_COLOR_COMMAND_BIT (0x80)
 #define EVO_COLOR_CLEAR_REG   (0x14)
 
@@ -47,9 +48,12 @@ typedef struct _evo_linetrace_obj_t {
 typedef struct _evo_line_pid_t {
     mp_float_t integral;
     mp_float_t previous_error;
-    uint32_t previous_ms;
+    uint32_t previous_us;
     bool initialized;
 } evo_line_pid_t;
+
+extern int machine_hw_i2c_transfer_no_probe(mp_obj_base_t *self, uint16_t address,
+    size_t count, mp_machine_i2c_buf_t *buffers, unsigned int flags);
 
 static inline int clamp_i(int value, int minimum, int maximum) {
     if (value < minimum) return minimum;
@@ -71,7 +75,8 @@ static void i2c_transfer_checked(mp_obj_t i2c, uint16_t address, size_t count,
     if (protocol == NULL || protocol->transfer == NULL) {
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("I2C transfer unsupported"));
     }
-    int result = protocol->transfer(i2c, address, count, buffers, flags);
+    int result = machine_hw_i2c_transfer_no_probe(
+        (mp_obj_base_t *)MP_OBJ_TO_PTR(i2c), address, count, buffers, flags);
     if (result < 0) {
         mp_raise_OSError(-result);
     }
@@ -91,6 +96,9 @@ static evo_line_sensor_t make_line_sensor(mp_obj_t sensor) {
         ? (uint8_t)mp_obj_get_int(mp_load_attr(native.wrapper, MP_QSTR_multiplexer_address))
         : 0;
 
+    if (!mp_obj_is_type(native.i2c, &machine_i2c_type)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("sensor must use hardware machine.I2C"));
+    }
     mp_machine_i2c_p_t *protocol = get_i2c_proto(native.i2c);
     if (protocol == NULL || protocol->transfer == NULL) {
         mp_raise_TypeError(MP_ERROR_TEXT("sensor must use a native machine.I2C bus"));
@@ -108,10 +116,6 @@ static int read_raw_clear(evo_line_sensor_t *sensor) {
         i2c_transfer_checked(sensor->i2c, sensor->mux_address, 1, &select_buffer,
             MP_MACHINE_I2C_FLAG_STOP);
 
-        // Keep I2CDevice's channel cache consistent with the hardware even
-        // though the channel selection bypasses its Python method.
-        mp_store_attr(sensor->wrapper, MP_QSTR_current_channel,
-            MP_OBJ_NEW_SMALL_INT(sensor->channel));
     }
 
     uint8_t register_address = EVO_COLOR_COMMAND_BIT | EVO_COLOR_CLEAR_REG;
@@ -150,6 +154,29 @@ static void read_calibrated(evo_linetrace_obj_t *self, int *left, int *right) {
     *right = map_reading(read_raw_clear(&self->right_sensor), self->right_min, self->right_max);
 }
 
+static void sync_mux_cache(evo_linetrace_obj_t *self) {
+    // read_calibrated() reads left then right, so the right channel is selected
+    // when both sensors share the usual multiplexed bus.
+    if (self->right_sensor.has_multiplexer) {
+        mp_store_attr(self->right_sensor.wrapper, MP_QSTR_current_channel,
+            MP_OBJ_NEW_SMALL_INT(self->right_sensor.channel));
+    }
+}
+
+static void line_loop_wait(uint32_t iteration_start_us, uint8_t *poll_counter,
+                           evo_linetrace_obj_t *self) {
+    if (++(*poll_counter) >= EVO_LINE_EVENT_POLL_INTERVAL) {
+        *poll_counter = 0;
+        sync_mux_cache(self);
+        MICROPY_EVENT_POLL_HOOK;
+    }
+
+    uint32_t elapsed_us = (uint32_t)mp_hal_ticks_us() - iteration_start_us;
+    if (elapsed_us < EVO_LINE_LOOP_US) {
+        mp_hal_delay_us(EVO_LINE_LOOP_US - elapsed_us);
+    }
+}
+
 static bool junction_reached(int left, int right, int type, int threshold) {
     bool left_crossed = left <= threshold;
     bool right_crossed = right <= threshold;
@@ -182,12 +209,12 @@ static void finish_move(evo_motorpair_obj_t *robot, bool stop) {
 }
 
 static int pid_correction(evo_linetrace_obj_t *self, evo_line_pid_t *pid, mp_float_t error) {
-    uint32_t now = mp_hal_ticks_ms();
+    uint32_t now = (uint32_t)mp_hal_ticks_us();
     mp_float_t derivative = 0;
     if (pid->initialized) {
-        uint32_t elapsed_ms = now - pid->previous_ms;
-        if (elapsed_ms > 0) {
-            mp_float_t dt = (mp_float_t)elapsed_ms / 1000.0f;
+        uint32_t elapsed_us = now - pid->previous_us;
+        if (elapsed_us > 0) {
+            mp_float_t dt = (mp_float_t)elapsed_us / 1000000.0f;
             pid->integral += error * dt;
             derivative = (error - pid->previous_error) / dt;
         }
@@ -195,7 +222,7 @@ static int pid_correction(evo_linetrace_obj_t *self, evo_line_pid_t *pid, mp_flo
         pid->initialized = true;
     }
     pid->previous_error = error;
-    pid->previous_ms = now;
+    pid->previous_us = now;
     return (int)roundf(self->kp * error + self->ki * pid->integral + self->kd * derivative);
 }
 
@@ -293,12 +320,16 @@ static mp_obj_t double_degrees(size_t n_args, const mp_obj_t *args) {
     int left_start = evo_motor_get_angle_deg(self->robot->m1);
     int right_start = evo_motor_get_angle_deg(self->robot->m2);
     evo_line_pid_t pid = {0};
+    uint8_t poll_counter = 0;
     while (degree_progress(self->robot, left_start, right_start) < degrees) {
+        uint32_t iteration_start_us = (uint32_t)mp_hal_ticks_us();
         int left, right;
         read_calibrated(self, &left, &right);
         drive_pid(self, speed, (mp_float_t)(left - right), &pid);
-        MICROPY_EVENT_POLL_HOOK;
-        mp_hal_delay_ms(EVO_LINE_LOOP_MS);
+        line_loop_wait(iteration_start_us, &poll_counter, self);
+    }
+    if (degrees > 0) {
+        sync_mux_cache(self);
     }
     finish_move(self->robot, stop);
     return mp_const_none;
@@ -317,15 +348,19 @@ static mp_obj_t single_degrees(size_t n_args, const mp_obj_t *args) {
     int left_start = evo_motor_get_angle_deg(self->robot->m1);
     int right_start = evo_motor_get_angle_deg(self->robot->m2);
     evo_line_pid_t pid = {0};
+    uint8_t poll_counter = 0;
     while (degree_progress(self->robot, left_start, right_start) < degrees) {
+        uint32_t iteration_start_us = (uint32_t)mp_hal_ticks_us();
         int left, right;
         read_calibrated(self, &left, &right);
         mp_float_t error = side == EVO_JUNCTION_LEFT
             ? (mp_float_t)(left - threshold)
             : (mp_float_t)(threshold - right);
         drive_pid(self, speed, error, &pid);
-        MICROPY_EVENT_POLL_HOOK;
-        mp_hal_delay_ms(EVO_LINE_LOOP_MS);
+        line_loop_wait(iteration_start_us, &poll_counter, self);
+    }
+    if (degrees > 0) {
+        sync_mux_cache(self);
     }
     finish_move(self->robot, stop);
     return mp_const_none;
@@ -340,14 +375,16 @@ static mp_obj_t double_junction(size_t n_args, const mp_obj_t *args) {
     bool stop = mp_obj_is_true(args[4]);
     validate_junction_type(junction_type);
     evo_line_pid_t pid = {0};
+    uint8_t poll_counter = 0;
     while (true) {
+        uint32_t iteration_start_us = (uint32_t)mp_hal_ticks_us();
         int left, right;
         read_calibrated(self, &left, &right);
         if (junction_reached(left, right, junction_type, junction_threshold)) break;
         drive_pid(self, speed, (mp_float_t)(left - right), &pid);
-        MICROPY_EVENT_POLL_HOOK;
-        mp_hal_delay_ms(EVO_LINE_LOOP_MS);
+        line_loop_wait(iteration_start_us, &poll_counter, self);
     }
+    sync_mux_cache(self);
     finish_move(self->robot, stop);
     return mp_const_none;
 }
@@ -364,7 +401,9 @@ static mp_obj_t single_junction(size_t n_args, const mp_obj_t *args) {
     validate_tracking_side(side);
     validate_junction_type(junction_type);
     evo_line_pid_t pid = {0};
+    uint8_t poll_counter = 0;
     while (true) {
+        uint32_t iteration_start_us = (uint32_t)mp_hal_ticks_us();
         int left, right;
         read_calibrated(self, &left, &right);
         if (junction_reached(left, right, junction_type, junction_threshold)) break;
@@ -372,9 +411,9 @@ static mp_obj_t single_junction(size_t n_args, const mp_obj_t *args) {
             ? (mp_float_t)(left - threshold)
             : (mp_float_t)(threshold - right);
         drive_pid(self, speed, error, &pid);
-        MICROPY_EVENT_POLL_HOOK;
-        mp_hal_delay_ms(EVO_LINE_LOOP_MS);
+        line_loop_wait(iteration_start_us, &poll_counter, self);
     }
+    sync_mux_cache(self);
     finish_move(self->robot, stop);
     return mp_const_none;
 }
