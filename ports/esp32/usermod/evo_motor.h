@@ -79,7 +79,7 @@
 #endif
 
 #ifndef EVO_MOTOR_PWM_FREQ
-#define EVO_MOTOR_PWM_FREQ 50
+#define EVO_MOTOR_PWM_FREQ 1000
 #endif
 
 typedef struct _evo_motor_obj_t {
