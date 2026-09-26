@@ -10,11 +10,18 @@ that wheel's timer. A wheel requested at zero power is ignored during pivots.
 pair.setStallTimeout(500)  # milliseconds without encoder activity
 print(pair.getStallTimeout())  # 500
 pair.moveDegrees(1000, 1000, 720)
+print(pair.getStalled())  # True if this movement stopped because of a stall
 ```
 
 On timeout, the movement returns normally (`None`) after applying its selected
 stop behavior to both motors, and `isBusy()` becomes false. No exception is
 raised. The usual default is brake; per-movement coast/hold overrides also apply.
+
+`getStalled()` reads a stored flag, initially `False`. Starting a new movement
+resets it to `False`; detecting a stall sets it to `True`. It stays set after
+the movement stops, including after explicit stop/brake/coast/hold calls, until
+another movement starts. Reading the flag does not clear it. Immediate `move`,
+`moveSpeed`, and `movePower` commands also reset the flag when starting.
 
 Use `pair.setStallTimeout(0)` to disable detection, for example when using motors
 without encoders for timed movements. Negative timeouts raise `ValueError`.

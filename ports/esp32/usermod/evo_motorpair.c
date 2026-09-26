@@ -179,6 +179,7 @@ static float pair_heading_error(float heading, float target) {
 }
 
 static void pair_prepare_common(evo_motorpair_obj_t *self, evo_pair_exec_t *st) {
+    self->stalled = false;
     st->leftDir  = (st->leftSpeed  == 0) ? 0 : (st->leftSpeed  > 0 ? 1 : -1);
     st->rightDir = (st->rightSpeed == 0) ? 0 : (st->rightSpeed > 0 ? 1 : -1);
     st->maxSpeed = MAX(st->leftSpeed * st->leftDir, st->rightSpeed * st->rightDir);
@@ -237,11 +238,15 @@ static bool pair_is_stalled(evo_motorpair_obj_t *self, evo_pair_exec_t *st) {
     }
     st->lastLeftPosition = left;
     st->lastRightPosition = right;
-    return self->stallTimeoutMs != 0
+    bool stalled = self->stallTimeoutMs != 0
         && ((st->leftSpeed != 0
                 && (uint32_t)(now - st->lastLeftUpdateMs) >= self->stallTimeoutMs)
             || (st->rightSpeed != 0
                 && (uint32_t)(now - st->lastRightUpdateMs) >= self->stallTimeoutMs));
+    if (stalled) {
+        self->stalled = true;
+    }
+    return stalled;
 }
 
 static int pair_calc_degrees_profile_speed(evo_motorpair_obj_t *self, evo_pair_exec_t *st, int progress) {
@@ -653,6 +658,7 @@ static mp_obj_t evo_motorpair_make_new(const mp_obj_type_t *type,
 
     self->stopBehavior = EVO_STOP_BRAKE;
     self->stallTimeoutMs = 1000;
+    self->stalled = false;
     self->busy = false;
 
     return MP_OBJ_FROM_PTR(self);
@@ -674,6 +680,12 @@ static mp_obj_t mp_getStallTimeout(mp_obj_t self_in) {
     return mp_obj_new_int_from_uint(self->stallTimeoutMs);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mp_getStallTimeout_obj, mp_getStallTimeout);
+
+static mp_obj_t mp_getStalled(mp_obj_t self_in) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return mp_obj_new_bool(self->stalled);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(mp_getStalled_obj, mp_getStalled);
 
 static mp_obj_t mp_setStartSpeed(mp_obj_t self_in, mp_obj_t v_in) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -763,6 +775,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(mp_getSyncPID_obj, mp_getSyncPID);
 
 static mp_obj_t mp_movePower(size_t n_args, const mp_obj_t *args) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    self->stalled = false;
     self->busy = false;
     evo_motor_run_power_c(self->m1, mp_obj_get_int(args[1]));
     evo_motor_run_power_c(self->m2, mp_obj_get_int(args[2]));
@@ -772,6 +785,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_movePower_obj, 3, 3, mp_movePower)
 
 static mp_obj_t mp_moveSpeed(size_t n_args, const mp_obj_t *args) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    self->stalled = false;
     self->busy = false;
     evo_motor_run_power_c(self->m1, obj_get_rounded_int(args[1]));
     evo_motor_run_power_c(self->m2, obj_get_rounded_int(args[2]));
@@ -1237,6 +1251,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(evo_motorpair_deinit_method_obj, evo_motorpair_
 static const mp_rom_map_elem_t evo_motorpair_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_setStallTimeout),        MP_ROM_PTR(&mp_setStallTimeout_obj) },
     { MP_ROM_QSTR(MP_QSTR_getStallTimeout),        MP_ROM_PTR(&mp_getStallTimeout_obj) },
+    { MP_ROM_QSTR(MP_QSTR_getStalled),             MP_ROM_PTR(&mp_getStalled_obj) },
     { MP_ROM_QSTR(MP_QSTR_setStartSpeed),          MP_ROM_PTR(&mp_setStartSpeed_obj) },
     { MP_ROM_QSTR(MP_QSTR_setEndSpeed),            MP_ROM_PTR(&mp_setEndSpeed_obj) },
     { MP_ROM_QSTR(MP_QSTR_setAcceleration),        MP_ROM_PTR(&mp_setAcceleration_obj) },

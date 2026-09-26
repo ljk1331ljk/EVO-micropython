@@ -27,9 +27,16 @@ def main():
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+#include <math.h>
 #define EVO_PAIR_INTEGRAL_BUF_SIZE 20
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+static int abs_i(int v) { return v < 0 ? -v : v; }
 typedef struct { int32_t position; } motor_t;
-typedef struct { motor_t *m1, *m2; uint32_t stallTimeoutMs; } evo_motorpair_obj_t;
+typedef struct { motor_t *m1, *m2; uint32_t stallTimeoutMs; bool stalled; } evo_motorpair_obj_t;
+typedef uintptr_t mp_obj_t;
+#define MP_OBJ_TO_PTR(o) ((void *)(o))
+static mp_obj_t mp_obj_new_bool(bool value) { return value; }
 static uint32_t now;
 static int stops, stopped_with, commands;
 static uint32_t mp_hal_ticks_ms(void) { return now; }
@@ -50,19 +57,25 @@ static void pair_apply_speed_and_sync(evo_motorpair_obj_t *s, evo_pair_exec_t *s
     (void)s; (void)st; commands++;
 }
 """
-    for name in ("pair_is_stalled", "pair_step_move_degrees", "pair_step_move_time"):
+    for name in ("pair_prepare_common", "pair_is_stalled", "mp_getStalled",
+                 "pair_step_move_degrees", "pair_step_move_time"):
         harness += function(source, name) + "\n"
     harness += r"""
 int main(void) {
     motor_t left = {0}, right = {0};
-    evo_motorpair_obj_t pair = {&left, &right, 1000};
+    evo_motorpair_obj_t pair = {&left, &right, 1000, false};
     evo_pair_exec_t st = {.leftSpeed = 100, .rightSpeed = 100};
+    pair_prepare_common(&pair, &st);
+    assert(!mp_getStalled((mp_obj_t)&pair));
     now = 999; assert(!pair_is_stalled(&pair, &st));
     now = 1000; assert(pair_is_stalled(&pair, &st));
+    assert(mp_getStalled((mp_obj_t)&pair));
+    assert(mp_getStalled((mp_obj_t)&pair)); // reading does not clear the flag
 
     // A single raw count (including reverse motion) refreshes each timer.
     left.position = 1; right.position = -1;
     assert(!pair_is_stalled(&pair, &st));
+    assert(mp_getStalled((mp_obj_t)&pair)); // subsequent activity does not clear it
     now = 1999; assert(!pair_is_stalled(&pair, &st));
     now = 2000; right.position--;
     assert(pair_is_stalled(&pair, &st)); // moving right cannot hide stalled left
@@ -96,6 +109,9 @@ int main(void) {
                 .degrees = 10000, .timems = 10000, .stopBehavior = mode,
                 .lastLeftPosition = left.position, .lastRightPosition = right.position};
             pair.stallTimeoutMs = 1000;
+            now = 0;
+            pair_prepare_common(&pair, &st);
+            assert(!mp_getStalled((mp_obj_t)&pair));
             stops = commands = 0;
             now = 999;
             assert(!(timed ? pair_step_move_time(&pair, &st)
@@ -105,6 +121,14 @@ int main(void) {
             assert(timed ? pair_step_move_time(&pair, &st)
                          : pair_step_move_degrees(&pair, &st));
             assert(commands == 1 && stops == 1 && stopped_with == mode);
+            assert(mp_getStalled((mp_obj_t)&pair));
+            pair_prepare_common(&pair, &st);
+            assert(!mp_getStalled((mp_obj_t)&pair));
+            st.enc = st.degrees;
+            st.timems = 0;
+            assert(timed ? pair_step_move_time(&pair, &st)
+                         : pair_step_move_degrees(&pair, &st));
+            assert(!mp_getStalled((mp_obj_t)&pair)); // normal completion
         }
     }
     puts("motorpair stall tests passed");

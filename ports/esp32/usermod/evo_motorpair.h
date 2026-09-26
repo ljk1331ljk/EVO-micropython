@@ -45,6 +45,7 @@ typedef struct _evo_motorpair_obj_t {
 
     uint8_t stopBehavior;
     uint32_t stallTimeoutMs;
+    bool stalled;
     bool busy;
 } evo_motorpair_obj_t;
 
