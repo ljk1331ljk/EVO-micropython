@@ -141,6 +141,10 @@ typedef struct {
     int slowdowntime;
     int accelTimeMs;
     uint32_t t0_ms;
+    int32_t lastLeftPosition;
+    int32_t lastRightPosition;
+    uint32_t lastLeftUpdateMs;
+    uint32_t lastRightUpdateMs;
     bool imuStraight;
     bool imuRelative;
     float imuTargetHeading;
@@ -213,7 +217,31 @@ static void pair_prepare_common(evo_motorpair_obj_t *self, evo_pair_exec_t *st) 
     st->imuHasPrevious = false;
     st->imuCorrection = 0;
 
-    (void)self;
+    st->lastLeftPosition = self->m1->position;
+    st->lastRightPosition = self->m2->position;
+    st->lastLeftUpdateMs = mp_hal_ticks_ms();
+    st->lastRightUpdateMs = st->lastLeftUpdateMs;
+}
+
+// Track raw counts: even movement smaller than one degree resets the timer.
+// Each commanded wheel has its own timer so the other wheel cannot mask a stall.
+static bool pair_is_stalled(evo_motorpair_obj_t *self, evo_pair_exec_t *st) {
+    uint32_t now = mp_hal_ticks_ms();
+    int32_t left = self->m1->position;
+    int32_t right = self->m2->position;
+    if (left != st->lastLeftPosition || st->leftSpeed == 0) {
+        st->lastLeftUpdateMs = now;
+    }
+    if (right != st->lastRightPosition || st->rightSpeed == 0) {
+        st->lastRightUpdateMs = now;
+    }
+    st->lastLeftPosition = left;
+    st->lastRightPosition = right;
+    return self->stallTimeoutMs != 0
+        && ((st->leftSpeed != 0
+                && (uint32_t)(now - st->lastLeftUpdateMs) >= self->stallTimeoutMs)
+            || (st->rightSpeed != 0
+                && (uint32_t)(now - st->lastRightUpdateMs) >= self->stallTimeoutMs));
 }
 
 static int pair_calc_degrees_profile_speed(evo_motorpair_obj_t *self, evo_pair_exec_t *st, int progress) {
@@ -448,7 +476,7 @@ static void pair_init_move_degrees(evo_motorpair_obj_t *self, evo_pair_exec_t *s
 static bool pair_step_move_degrees(evo_motorpair_obj_t *self, evo_pair_exec_t *st) {
     pair_update_encoder_state(self, st);
 
-    if (st->enc >= st->degrees) {
+    if (pair_is_stalled(self, st) || st->enc >= st->degrees) {
         pair_apply_stop_now(self, st->stopBehavior);
         return true;
     }
@@ -536,7 +564,7 @@ static void pair_init_move_time(evo_motorpair_obj_t *self, evo_pair_exec_t *st) 
 static bool pair_step_move_time(evo_motorpair_obj_t *self, evo_pair_exec_t *st) {
     int elapsed = (int)((uint32_t)mp_hal_ticks_ms() - st->t0_ms);
 
-    if (elapsed >= st->timems) {
+    if (pair_is_stalled(self, st) || elapsed >= st->timems) {
         pair_apply_stop_now(self, st->stopBehavior);
         return true;
     }
@@ -624,10 +652,28 @@ static mp_obj_t evo_motorpair_make_new(const mp_obj_type_t *type,
     self->kdTurnIMU = 0.0f;
 
     self->stopBehavior = EVO_STOP_BRAKE;
+    self->stallTimeoutMs = 1000;
     self->busy = false;
 
     return MP_OBJ_FROM_PTR(self);
 }
+
+static mp_obj_t mp_setStallTimeout(mp_obj_t self_in, mp_obj_t timeout_in) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_int_t timeout = mp_obj_get_int(timeout_in);
+    if (timeout < 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("stall timeout must be >= 0"));
+    }
+    self->stallTimeoutMs = (uint32_t)timeout;
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(mp_setStallTimeout_obj, mp_setStallTimeout);
+
+static mp_obj_t mp_getStallTimeout(mp_obj_t self_in) {
+    evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return mp_obj_new_int_from_uint(self->stallTimeoutMs);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(mp_getStallTimeout_obj, mp_getStallTimeout);
 
 static mp_obj_t mp_setStartSpeed(mp_obj_t self_in, mp_obj_t v_in) {
     evo_motorpair_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -992,7 +1038,7 @@ static void pair_run_turn_degrees_pd(evo_motorpair_obj_t *self,
         MICROPY_EVENT_POLL_HOOK;
         pair_update_encoder_state(self, &st);
 
-        if (st.enc >= st.degrees) {
+        if (pair_is_stalled(self, &st) || st.enc >= st.degrees) {
             pair_apply_stop_now(self, stopBehavior);
             break;
         }
@@ -1116,7 +1162,7 @@ static mp_obj_t mp_turn(size_t n_args, const mp_obj_t *args) {
             justReached = true;
         }
 
-        if (maxPower == 0
+        if (pair_is_stalled(self, &st) || maxPower == 0
             || (correcting && !justReached
                 && (uint32_t)(now - correctionStartMs) >= (uint32_t)correctionTimeMs)) {
             pair_apply_stop_now(self, stopBehavior);
@@ -1189,6 +1235,8 @@ static mp_obj_t evo_motorpair_deinit_method(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(evo_motorpair_deinit_method_obj, evo_motorpair_deinit_method);
 
 static const mp_rom_map_elem_t evo_motorpair_locals_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_setStallTimeout),        MP_ROM_PTR(&mp_setStallTimeout_obj) },
+    { MP_ROM_QSTR(MP_QSTR_getStallTimeout),        MP_ROM_PTR(&mp_getStallTimeout_obj) },
     { MP_ROM_QSTR(MP_QSTR_setStartSpeed),          MP_ROM_PTR(&mp_setStartSpeed_obj) },
     { MP_ROM_QSTR(MP_QSTR_setEndSpeed),            MP_ROM_PTR(&mp_setEndSpeed_obj) },
     { MP_ROM_QSTR(MP_QSTR_setAcceleration),        MP_ROM_PTR(&mp_setAcceleration_obj) },
