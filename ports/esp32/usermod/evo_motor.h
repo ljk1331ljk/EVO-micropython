@@ -103,6 +103,10 @@ typedef struct _evo_motor_obj_t {
     volatile bool active;
 
     uint8_t stop_behaviour;
+    uint32_t stall_timeout_ms;
+    uint32_t stall_last_update_ms;
+    int32_t stall_last_position;
+    bool stalled;
 
     // Encoder speed measurement
     int32_t speed_last_position;

@@ -544,6 +544,29 @@ void evo_motor_run_speed_control_c(evo_motor_obj_t *m, mp_float_t target_dps) {
     evo_motor_run_power_c(m, power);
 }
 
+static void motor_clear_stall(evo_motor_obj_t *m) {
+    m->stalled = false;
+    m->stall_last_position = m->position;
+    m->stall_last_update_ms = mp_hal_ticks_ms();
+}
+
+// Called by public run commands and blocking loops, not by the shared PWM
+// driver: motor-pair control maintains its own independent stall state.
+static bool motor_check_stall(evo_motor_obj_t *m, bool moving) {
+    uint32_t now = mp_hal_ticks_ms();
+    int32_t position = m->position;
+    if (position != m->stall_last_position || !moving) {
+        m->stall_last_update_ms = now;
+    }
+    m->stall_last_position = position;
+    bool stalled = moving && m->stall_timeout_ms != 0
+        && (uint32_t)(now - m->stall_last_update_ms) >= m->stall_timeout_ms;
+    if (stalled) {
+        m->stalled = true;
+    }
+    return stalled;
+}
+
 static mp_obj_t evo_motor_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum { ARG_port, ARG_type, ARG_flip };
     static const mp_arg_t allowed[] = {
@@ -598,12 +621,45 @@ static mp_obj_t evo_motor_make_new(const mp_obj_type_t *type, size_t n_args, siz
     }
     evo_motor_reset_speed_state(m);
 
+    m->stall_timeout_ms = 1000;
+    motor_clear_stall(m);
     return MP_OBJ_FROM_PTR(m);
 }
 
+static mp_obj_t evo_motor_clearStall(mp_obj_t self_in) {
+    motor_clear_stall(MP_OBJ_TO_PTR(self_in));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(evo_motor_clearStall_obj, evo_motor_clearStall);
+
+static mp_obj_t evo_motor_getStalled(mp_obj_t self_in) {
+    evo_motor_obj_t *m = MP_OBJ_TO_PTR(self_in);
+    return mp_obj_new_bool(m->stalled);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(evo_motor_getStalled_obj, evo_motor_getStalled);
+
+static mp_obj_t evo_motor_setStallTimeout(mp_obj_t self_in, mp_obj_t timeout_in) {
+    evo_motor_obj_t *m = MP_OBJ_TO_PTR(self_in);
+    mp_int_t timeout = mp_obj_get_int(timeout_in);
+    if (timeout < 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("stall timeout must be >= 0"));
+    }
+    m->stall_timeout_ms = (uint32_t)timeout;
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(evo_motor_setStallTimeout_obj, evo_motor_setStallTimeout);
+
+static mp_obj_t evo_motor_getStallTimeout(mp_obj_t self_in) {
+    evo_motor_obj_t *m = MP_OBJ_TO_PTR(self_in);
+    return mp_obj_new_int_from_uint(m->stall_timeout_ms);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(evo_motor_getStallTimeout_obj, evo_motor_getStallTimeout);
+
 static mp_obj_t evo_motor_runPower(mp_obj_t self_in, mp_obj_t power_in) {
     evo_motor_obj_t *m = MP_OBJ_TO_PTR(self_in);
-    evo_motor_run_power_c(m, mp_obj_get_int(power_in));
+    int power = mp_obj_get_int(power_in);
+    motor_check_stall(m, power != 0);
+    evo_motor_run_power_c(m, power);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(evo_motor_runPower_obj, evo_motor_runPower);
@@ -660,6 +716,7 @@ static mp_obj_t evo_motor_runTime(mp_obj_t self_in, mp_obj_t dps_in, mp_obj_t se
         mp_raise_ValueError(MP_ERROR_TEXT("seconds must be >= 0"));
     }
 
+    motor_clear_stall(m);
     if (target_dps == 0 || secs == 0) {
         evo_motor_run_speed_control_c(m, 0);
         return mp_const_none;
@@ -671,6 +728,9 @@ static mp_obj_t evo_motor_runTime(mp_obj_t self_in, mp_obj_t dps_in, mp_obj_t se
     uint32_t dur_ms = (uint32_t)(secs * 1000.0f + 0.5f);
     uint32_t start = mp_hal_ticks_ms();
     while ((uint32_t)(mp_hal_ticks_ms() - start) < dur_ms) {
+        if (motor_check_stall(m, true)) {
+            break;
+        }
         evo_motor_run_speed_control_c(m, target_dps);
         MICROPY_EVENT_POLL_HOOK;
         mp_hal_delay_ms(10);
@@ -691,6 +751,7 @@ static mp_obj_t evo_motor_runAngle(mp_obj_t self_in, mp_obj_t dps_in, mp_obj_t a
     }
 
     int angle = mp_obj_get_int(angle_in);
+    motor_clear_stall(m);
     if (angle == 0 || dps == 0) {
         evo_motor_run_speed_control_c(m, 0);
         return mp_const_none;
@@ -714,12 +775,18 @@ static mp_obj_t evo_motor_runAngle(mp_obj_t self_in, mp_obj_t dps_in, mp_obj_t a
 
     if (dir > 0) {
         while (m->position < target) {
+            if (motor_check_stall(m, true)) {
+                break;
+            }
             evo_motor_run_speed_control_c(m, target_dps);
             MICROPY_EVENT_POLL_HOOK;
             mp_hal_delay_ms(10);
         }
     } else {
         while (m->position > target) {
+            if (motor_check_stall(m, true)) {
+                break;
+            }
             evo_motor_run_speed_control_c(m, target_dps);
             MICROPY_EVENT_POLL_HOOK;
             mp_hal_delay_ms(10);
@@ -811,6 +878,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(evo_motor_getPower_obj, evo_motor_getPower);
 static mp_obj_t evo_motor_runSpeed(mp_obj_t self_in, mp_obj_t target_dps_in) {
     evo_motor_obj_t *m = MP_OBJ_TO_PTR(self_in);
     mp_float_t target_dps = mp_obj_get_float(target_dps_in);
+    motor_check_stall(m, target_dps != 0);
     evo_motor_run_speed_control_c(m, target_dps);
     return mp_const_none;
 }
@@ -868,6 +936,10 @@ static mp_obj_t evo_motor_disableAllMotors(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(evo_motor_disableAllMotors_obj, evo_motor_disableAllMotors);
 
 static const mp_rom_map_elem_t evo_motor_locals_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_clearStall), MP_ROM_PTR(&evo_motor_clearStall_obj) },
+    { MP_ROM_QSTR(MP_QSTR_getStalled), MP_ROM_PTR(&evo_motor_getStalled_obj) },
+    { MP_ROM_QSTR(MP_QSTR_setStallTimeout), MP_ROM_PTR(&evo_motor_setStallTimeout_obj) },
+    { MP_ROM_QSTR(MP_QSTR_getStallTimeout), MP_ROM_PTR(&evo_motor_getStallTimeout_obj) },
     { MP_ROM_QSTR(MP_QSTR_run),      MP_ROM_PTR(&evo_motor_run_obj) },
     { MP_ROM_QSTR(MP_QSTR_runPower), MP_ROM_PTR(&evo_motor_runPower_obj) },
 

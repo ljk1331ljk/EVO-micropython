@@ -33,8 +33,15 @@ def main():
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 static int abs_i(int v) { return v < 0 ? -v : v; }
 typedef struct { int32_t position; } motor_t;
-typedef struct { motor_t *m1, *m2; uint32_t stallTimeoutMs; bool stalled; } evo_motorpair_obj_t;
+typedef struct {
+    motor_t *m1, *m2;
+    uint32_t stallTimeoutMs;
+    bool stalled;
+    int32_t runLastLeftPosition, runLastRightPosition;
+    uint32_t runLastLeftUpdateMs, runLastRightUpdateMs;
+} evo_motorpair_obj_t;
 typedef uintptr_t mp_obj_t;
+#define mp_const_none 0
 #define MP_OBJ_TO_PTR(o) ((void *)(o))
 static mp_obj_t mp_obj_new_bool(bool value) { return value; }
 static uint32_t now;
@@ -57,13 +64,14 @@ static void pair_apply_speed_and_sync(evo_motorpair_obj_t *s, evo_pair_exec_t *s
     (void)s; (void)st; commands++;
 }
 """
-    for name in ("pair_prepare_common", "pair_is_stalled", "mp_getStalled",
+    for name in ("pair_clear_stall", "pair_prepare_common", "pair_is_stalled",
+                 "pair_check_run_stall", "mp_clearStall", "mp_getStalled",
                  "pair_step_move_degrees", "pair_step_move_time"):
         harness += function(source, name) + "\n"
     harness += r"""
 int main(void) {
     motor_t left = {0}, right = {0};
-    evo_motorpair_obj_t pair = {&left, &right, 1000, false};
+    evo_motorpair_obj_t pair = {.m1 = &left, .m2 = &right, .stallTimeoutMs = 1000};
     evo_pair_exec_t st = {.leftSpeed = 100, .rightSpeed = 100};
     pair_prepare_common(&pair, &st);
     assert(!mp_getStalled((mp_obj_t)&pair));
@@ -131,6 +139,43 @@ int main(void) {
             assert(!mp_getStalled((mp_obj_t)&pair)); // normal completion
         }
     }
+    // Immediate run calls retain timers and latch status until explicitly cleared.
+    now = 10000;
+    mp_clearStall((mp_obj_t)&pair);
+    assert(!mp_getStalled((mp_obj_t)&pair));
+    pair_check_run_stall(&pair, 100, 100);
+    now = 10999;
+    pair_check_run_stall(&pair, 200, 200); // changing power must not reset timers
+    assert(!mp_getStalled((mp_obj_t)&pair));
+    right.position++;
+    now = 11000;
+    pair_check_run_stall(&pair, 200, 200);
+    assert(mp_getStalled((mp_obj_t)&pair)); // left stalled despite right activity
+    left.position++;
+    pair_check_run_stall(&pair, 200, 200);
+    assert(mp_getStalled((mp_obj_t)&pair));
+    mp_clearStall((mp_obj_t)&pair);
+    assert(pair.runLastLeftUpdateMs == now && pair.runLastRightUpdateMs == now);
+    assert(pair.runLastLeftPosition == left.position);
+    assert(pair.runLastRightPosition == right.position);
+    now = 11999;
+    pair_check_run_stall(&pair, 100, 100);
+    assert(!mp_getStalled((mp_obj_t)&pair));
+    now = 12000;
+    pair_check_run_stall(&pair, 100, 100);
+    assert(mp_getStalled((mp_obj_t)&pair));
+    mp_clearStall((mp_obj_t)&pair);
+    now = 13000;
+    left.position++;
+    pair_check_run_stall(&pair, -100, 0); // stationary pivot wheel excluded
+    assert(!mp_getStalled((mp_obj_t)&pair));
+    now = 14000;
+    pair_check_run_stall(&pair, 0, 0);
+    assert(!mp_getStalled((mp_obj_t)&pair));
+    pair.stallTimeoutMs = 0;
+    now = 20000;
+    pair_check_run_stall(&pair, 100, 100);
+    assert(!mp_getStalled((mp_obj_t)&pair));
     puts("motorpair stall tests passed");
 }
 """
