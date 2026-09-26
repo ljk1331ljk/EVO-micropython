@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "name": "EVO MicroPython Firmware",
-  "version": "v1.2.0-beta.7",
+  "version": "v1.2.0-beta.8",
   "channel": "beta",
   "repository": "ljk1331ljk/EVO-micropython",
-  "commit": "a672b98e8e308982f2006e36f6b2ddef38fe2b8e",
-  "release_tag": "v1.2.0-beta.7",
+  "commit": "f77d3c54ccd7009e79f2801bb0347443ddbcc1b7",
+  "release_tag": "v1.2.0-beta.8",
   "prerelease": true,
-  "generated_at": "2026-09-26T04:03:37Z",
+  "generated_at": "2026-09-26T12:35:37Z",
   "devices": [
     {
       "id": "EVOX1E",
@@ -25,24 +25,24 @@
       },
       "assets": {
         "bootloader": {
-          "file": "EVOX1E-SPIRAM_OCT-20260926-v1.2.0-beta.7.bootloader.bin",
+          "file": "EVOX1E-SPIRAM_OCT-20260926-v1.2.0-beta.8.bootloader.bin",
           "offset": "0x0",
-          "sha256": "994660648e9e2f306afd13811c47897c4883e5f8c242d40f88192487479c73ac",
+          "sha256": "332a5cad366a84f356b52c648a52dadd4511446254cb8e80d867363191141d40",
           "size": 19232,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1e/bootloader.bin"
         },
         "partition_table": {
-          "file": "EVOX1E-SPIRAM_OCT-20260926-v1.2.0-beta.7.partition-table.bin",
+          "file": "EVOX1E-SPIRAM_OCT-20260926-v1.2.0-beta.8.partition-table.bin",
           "offset": "0x8000",
           "sha256": "520c18ca0bda73aed288d427d260ab051d71219f605707350e6c42401f4836fc",
           "size": 3072,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1e/partition-table.bin"
         },
         "application": {
-          "file": "EVOX1E-SPIRAM_OCT-20260926-v1.2.0-beta.7.micropython.bin",
+          "file": "EVOX1E-SPIRAM_OCT-20260926-v1.2.0-beta.8.micropython.bin",
           "offset": "0x10000",
-          "sha256": "3b2e523582aaacba24e7f0a46e78bf3eba198691c91277b5ee58b56897327306",
-          "size": 1896304,
+          "sha256": "20eb709afa3fbfcd75f7346ede661197fb3033a264112dd0b5beea49027fdaab",
+          "size": 1896352,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1e/micropython.bin"
         }
       },
@@ -80,24 +80,24 @@
       },
       "assets": {
         "bootloader": {
-          "file": "EVOX1P-SPIRAM_OCT-20260926-v1.2.0-beta.7.bootloader.bin",
+          "file": "EVOX1P-SPIRAM_OCT-20260926-v1.2.0-beta.8.bootloader.bin",
           "offset": "0x0",
-          "sha256": "3941b1f74159f369157639a2af565b609410324610cdfd241a37d421d5e45739",
+          "sha256": "4c57a1e3831f6866996866efcca5425818c9965d928ad1255c8e32897fca8835",
           "size": 19232,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1p/bootloader.bin"
         },
         "partition_table": {
-          "file": "EVOX1P-SPIRAM_OCT-20260926-v1.2.0-beta.7.partition-table.bin",
+          "file": "EVOX1P-SPIRAM_OCT-20260926-v1.2.0-beta.8.partition-table.bin",
           "offset": "0x8000",
           "sha256": "520c18ca0bda73aed288d427d260ab051d71219f605707350e6c42401f4836fc",
           "size": 3072,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1p/partition-table.bin"
         },
         "application": {
-          "file": "EVOX1P-SPIRAM_OCT-20260926-v1.2.0-beta.7.micropython.bin",
+          "file": "EVOX1P-SPIRAM_OCT-20260926-v1.2.0-beta.8.micropython.bin",
           "offset": "0x10000",
-          "sha256": "8d2462c2a83d8f7c805fbf6d04cfa8b9d0687dfee0126154e3ccca7884549334",
-          "size": 1899248,
+          "sha256": "5aead2526ac880c12f10986d095eefef50e8c108eeeb24630583a9c749cbe131",
+          "size": 1899296,
           "url": "https://ljk1331ljk.github.io/EVO-micropython/firmware/beta/evox1p/micropython.bin"
         }
       },
