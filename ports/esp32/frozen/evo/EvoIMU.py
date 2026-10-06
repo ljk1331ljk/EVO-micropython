@@ -28,6 +28,7 @@ class EvoIMU:
         self.address = address
 
         self._referenceHeading = 0.0
+        self._headingOffset = 0.0
         self._lastRelativeHeading = 0.0
         self._rotationCount = 0
         self._mode = _OPERATION_MODE_CONFIG
@@ -112,8 +113,11 @@ class EvoIMU:
     # -----------------------------
     # Requested API
     # -----------------------------
-    def resetHeading(self):
+    def resetHeading(self, heading=0):
+        """Set the current relative heading in degrees (zero by default)."""
+        heading = float(heading)
         self._referenceHeading = self.getEulerX()
+        self._headingOffset = heading
         self._rotationCount = 0
         self._lastRelativeHeading = 0.0
 
@@ -132,7 +136,7 @@ class EvoIMU:
             self._rotationCount += 1
 
         self._lastRelativeHeading = relativeHeading
-        return relativeHeading + (self._rotationCount * 360.0)
+        return relativeHeading + (self._rotationCount * 360.0) + self._headingOffset
 
     def getEuler(self):
         x, y, z = self._readEulerRaw()
