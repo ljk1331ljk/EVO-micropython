@@ -293,6 +293,18 @@ static void preset(int motortype, bool flip_in, bool *flip_eff, int *cpr, int8_t
             *enc_dir = -1;
             break;
 
+        case MT_EVOMotor200:
+            *flip_eff = !flip_in;
+            *cpr = 4226;
+            *enc_dir = -1;
+            break;
+
+        case MT_EVOMotor250:
+            *flip_eff = !flip_in;
+            *cpr = 1764;
+            *enc_dir = -1;
+            break;
+
         default:
             *flip_eff = !flip_in;
             *cpr = 360;

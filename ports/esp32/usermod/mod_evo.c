@@ -903,6 +903,8 @@ static const mp_rom_map_elem_t evo_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_ITERMK195),             MP_ROM_INT(MT_ITERMK195) },
     { MP_ROM_QSTR(MP_QSTR_EVOMotor300),           MP_ROM_INT(MT_EVOMotor300) },
     { MP_ROM_QSTR(MP_QSTR_EVOMotor100),           MP_ROM_INT(MT_EVOMotor100) },
+    { MP_ROM_QSTR(MP_QSTR_EVOMotor200),           MP_ROM_INT(MT_EVOMotor200) },
+    { MP_ROM_QSTR(MP_QSTR_EVOMotor250),           MP_ROM_INT(MT_EVOMotor250) },
 
     { MP_ROM_QSTR(MP_QSTR_COAST), MP_ROM_INT(EVO_STOP_COAST) },
     { MP_ROM_QSTR(MP_QSTR_BRAKE), MP_ROM_INT(EVO_STOP_BRAKE) },

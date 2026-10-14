@@ -70,6 +70,14 @@
 #define MT_EVOMotor100 10
 #endif
 
+#ifndef MT_EVOMotor200
+#define MT_EVOMotor200 11
+#endif
+
+#ifndef MT_EVOMotor250
+#define MT_EVOMotor250 12
+#endif
+
 #define EVO_STOP_COAST 0
 #define EVO_STOP_BRAKE 1
 #define EVO_STOP_HOLD  2
